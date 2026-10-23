@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Test Results & Reports
+allure-results/
+allure-report/
+logs/
+screenshots/
+diagnostics/
+
+# Environment & Secrets
+.env
+.env.*
+
+# App Binaries (اختياري: لو مش عايز ترفع الـ APK)
+apks/*.apk
+
+# OS & IDE Files
+.DS_Store
+.idea/
+.vscode/
+*.log
