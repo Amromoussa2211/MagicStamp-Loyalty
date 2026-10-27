@@ -5,10 +5,10 @@
   "main": "index.js",
   "scripts": {
     "test": "wdio run ./wdio.conf.js",
-    "test:local": "wdio run ./wdio.local.conf.js && npm run generate-report && npm run open-report",
-    "test:ci": "wdio run ./wdio.ci.conf.js",
+"test:local": "rm -rf allure-results; for f in test/specs/*.spec.js; do wdio run ./wdio.local.conf.js --spec \"$f\" || true; done; npm run generate-report; npm run open-report",  
+  "test:ci": "wdio run ./wdio.ci.conf.js",
     "generate-report": "allure generate allure-results --clean -o allure-report",
-    "open-report": "allure open allure-report",
+    "open-report": "node_modules/.bin/allure open allure-report",
     "start:appium": "appium"
   },
   "dependencies": {

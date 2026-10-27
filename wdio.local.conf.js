@@ -13,10 +13,15 @@ exports.config = {
     specs: ['./test/specs/**/*.spec.js'],
     exclude: [],
     maxInstances: 1,
+    specFileRetries: 0,
+    maxInstancesPerCapability: 1,
+
     logLevel: 'info',
     bail: 0,
     waitforTimeout: 15000,
     connectionRetryTimeout: 200000,
+
+    services: ['appium'],
     
     capabilities: [
         {
@@ -31,7 +36,11 @@ exports.config = {
             'appium:noReset': true,
             'appium:fullReset': false,
             'appium:newCommandTimeout': 120,
-            'appium:autoLaunch': true // <--- أضفنا هذا السطر لفتح التطبيق تلقائياً
+            'appium:autoLaunch': true,
+
+            'appium:systemPort': 8201,
+            'appium:uiautomator2ServerLaunchTimeout': 60000,
+            'appium:uiautomator2ServerInstallTimeout': 60000
         }
     ],
 
@@ -51,24 +60,72 @@ exports.config = {
     },
 
     onPrepare: async function () {
+        try {
+            const allureResultsDir = path.join(__dirname, 'allure-results');
+            if (!fs.existsSync(allureResultsDir)) fs.mkdirSync(allureResultsDir, { recursive: true });
+
+            const envContent = [
+                'Environment=DEV',
+                'Platform=Android',
+                'DeviceName=CPH1937',
+                'UDID=93bb1813',
+                'AppPackage=com.parktechnology.purse.dev',
+                'Runner=Local',
+                `Tester=${process.env.USER || 'local'}`,
+                `Timestamp=${new Date().toISOString()}`
+            ].join('\n');
+            fs.writeFileSync(path.join(allureResultsDir, 'environment.properties'), envContent);
+
+            const executor = {
+                name: 'Local Machine',
+                type: 'local',
+                buildName: `local-${new Date().toISOString().slice(0, 10)}`
+            };
+            fs.writeFileSync(path.join(allureResultsDir, 'executor.json'), JSON.stringify(executor, null, 2));
+
+            console.log('✅ Allure environment.properties + executor.json written (DEV)');
+        } catch (err) {
+            console.warn('⚠️ Failed to write Allure env/executor files:', err.message);
+        }
+
         console.log('📦 Preparing test environment...');
         try {
-            execSync('adb shell pkill -f uiautomator');
-            console.log('✅ Killed old uiautomator sessions');
+            execSync('adb shell am force-stop io.appium.uiautomator2.server', { stdio: 'ignore' });
+            execSync('adb shell am force-stop io.appium.uiautomator2.server.test', { stdio: 'ignore' });
+            console.log('✅ Force-stopped old uiautomator sessions');
         } catch (err) {
-            console.warn('⚠️ No uiautomator processes to kill or failed:', err.message);
+            console.warn('⚠️ No uiautomator processes to stop or failed:', err.message);
         }
     },
 
     beforeTest: async function () {
-        // تصحيح: استخدام terminateApp و activateApp بدلاً من reset
         try {
-            console.log('🔄 Restarting app before test...');
-            await driver.terminateApp('com.parktechnology.purse.dev');
+            // ✅ FIX: افتح التطبيق (لأن afterTest قفله في التيست اللي قبله)
             await driver.activateApp('com.parktechnology.purse.dev');
-            console.log('✅ App restarted successfully');
+            console.log('🔄 App activated');
+
+            // ✅ انتظر لحد ما التطبيق يبقى جاهز (UiAutomator2 يرد)
+            await driver.waitUntil(
+                async () => {
+                    try {
+                        const pkg = await driver.getCurrentPackage();
+                        return pkg === 'com.parktechnology.purse.dev';
+                    } catch {
+                        return false;
+                    }
+                },
+                {
+                    timeout: 15000,
+                    interval: 500,
+                    timeoutMsg: 'App did not become responsive in 15s'
+                }
+            );
+            console.log('✅ App is responsive, ready for test');
+
+            // ✅ استقرار إضافي للـ UI
+            await driver.pause(1500);
         } catch (err) {
-            console.warn('⚠️ Could not restart app:', err.message);
+            console.warn('⚠️ Could not activate app:', err.message);
         }
     },
 
@@ -85,7 +142,7 @@ exports.config = {
             await browser.saveScreenshot(fileName);
             console.log(`📸 Screenshot saved: ${fileName}`);
         } catch (err) {
-            console.error(`❌ Skipped screenshot: App crashed or session closed: ${err.message}`);
+            console.error(`❌ Skipped screenshot: ${err.message}`);
         }
 
         const logDir = path.join(__dirname, 'logs');
@@ -98,6 +155,21 @@ exports.config = {
         } catch (err) {
             console.error(`❌ Failed to fetch logcat: ${err.message}`);
         }
+
+        // ✅ اقفل التطبيق بعد كل test (عشان كل test يبدأ من حالة نظيفة)
+        // ملاحظة: beforeTest هيفتحه تاني
+        try {
+            console.log('🧹 Terminating app after test...');
+            await driver.terminateApp('com.parktechnology.purse.dev');
+            console.log('✅ App terminated successfully');
+        } catch (err) {
+            console.warn('⚠️ Could not terminate app:', err.message);
+        }
+
+        // ❌ مش بنقفل UiAutomator2 — الـ session محتاجاه
+        // (الـ force-stop للحزمتين معمول في onPrepare بس)
+
+        await driver.pause(1500);
     },
 
     onComplete: async function () {

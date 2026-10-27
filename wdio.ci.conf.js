@@ -49,7 +49,40 @@ exports.config = {
     'appium:appActivity': '.MainActivity',
   }],
 
-  onPrepare: () => {
+ onPrepare: () => {
+    // ✅ Write Allure environment.properties (STAGING)
+    try {
+        const allureResultsDir = path.join(__dirname, 'allure-results');
+        if (!fs.existsSync(allureResultsDir)) fs.mkdirSync(allureResultsDir, { recursive: true });
+
+        const envContent = [
+            'Environment=STAGING',
+            'Platform=Android',
+            'DeviceName=emulator-5554',
+            'PlatformVersion=14',
+            'AppPackage=com.parktechnology.purse.dev',
+            'Runner=GitHub Actions',
+            `Workflow=${process.env.GITHUB_WORKFLOW || 'unknown'}`,
+            `RunId=${process.env.GITHUB_RUN_ID || 'unknown'}`,
+            `Branch=${process.env.GITHUB_REF_NAME || 'unknown'}`,
+            `Commit=${process.env.GITHUB_SHA || 'unknown'}`,
+            `Actor=${process.env.GITHUB_ACTOR || 'unknown'}`,
+            `Timestamp=${new Date().toISOString()}`
+        ].join('\n');
+        fs.writeFileSync(path.join(allureResultsDir, 'environment.properties'), envContent);
+
+        const executor = {
+            name: 'GitHub Actions',
+            type: 'github',
+            buildName: `run-${process.env.GITHUB_RUN_ID || 'unknown'}`,
+            buildUrl: `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+        };
+        fs.writeFileSync(path.join(allureResultsDir, 'executor.json'), JSON.stringify(executor, null, 2));
+
+        console.log('✅ Allure environment.properties + executor.json written (STAGING)');
+    } catch (err) {
+        console.warn('⚠️ Failed to write Allure env/executor files:', err.message);
+    }
     console.log('📦 onPrepare: cleaning up before Appium starts (CI Mode)');
     try { execSync('adb shell pkill -f uiautomator', { stdio: 'ignore' }); } catch {}
     try { execSync('adb shell rm -f /sdcard/DCIM/Camera/*.png', { stdio: 'ignore' }); } catch {}
@@ -87,6 +120,23 @@ exports.config = {
       console.log(`📄 Logcat dumped: ${logFile}`);
     } catch (e) {
       console.warn(`❌ Failed to dump logcat: ${e.message}`);
+    }
+
+    // --- تنظيف التطبيق بعد كل اختبار (مهم جداً للجلسات المتعددة) ---
+    try {
+      console.log('🧹 Terminating app after test...');
+      await driver.terminateApp('com.parktechnology.purse.dev');
+      console.log('✅ App terminated successfully');
+    } catch (err) {
+      console.warn('⚠️ Could not terminate app:', err.message);
+    }
+
+    // --- تنظيف عمليات uiautomator العالقة ---
+    try {
+      execSync('adb shell pkill -f uiautomator', { stdio: 'ignore' });
+      console.log('🧹 Cleaned up uiautomator processes');
+    } catch (err) {
+      // تجاهل الخطأ
     }
   },
 
