@@ -34,7 +34,7 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm install
 
-      - name: 🔌 Install Appium UiAutomator2 driver
+      - name: 🔌 Verify Appium drivers
         run: npx appium driver list --installed
 
       - name: 🔧 Enable KVM
