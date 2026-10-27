@@ -3,16 +3,15 @@ const fs = require('fs');
 const path = require('path');
 const baseConfig = require('./wdio.conf.js');
 
-// Helper to handle the System UI crash dialog
+const APP_PACKAGE = 'com.parktechnology.purse.dev';
+
 const handleSystemUIDialog = async () => {
   try {
     const closeButton = await $('android=new UiSelector().textContains("Close app")');
-    if (await closeButton.waitForDisplayed({ timeout: 5000 })) {
-      console.warn('⚠️ System UI crash dialog found. Clicking "Close app"...');
-      await browser.pause(500);
-      await closeButton.click();
-      await browser.pause(3000);
-    }
+    await closeButton.waitForDisplayed({ timeout: 1500 });
+    console.warn('⚠️ System UI crash dialog found. Clicking "Close app"...');
+    await closeButton.click();
+    await browser.pause(2000);
   } catch {
     // no dialog present
   }
@@ -21,90 +20,102 @@ const handleSystemUIDialog = async () => {
 exports.config = {
   ...baseConfig.config,
 
+  // Appium بيشتغل من الـ script، فمنشغلش service تاني (تعارض على 4723)
+  services: [],
+
   maxInstances: 1,
-  connectionRetryTimeout: 120000,
+  waitforTimeout: 30000,
+  connectionRetryTimeout: 180000,
   connectionRetryCount: 3,
-  specFileRetries: 1,
+  specFileRetries: 0,
+
+  mochaOpts: {
+    ...baseConfig.config.mochaOpts,
+    retries: 1,
+  },
 
   capabilities: [{
     platformName: 'Android',
     'appium:automationName': 'UiAutomator2',
-    
-    // إعدادات الـ Emulator (تأكد من اسم ونسخة الـ Emulator عندك في البايب لاين)
     'appium:deviceName': 'emulator-5554',
+    'appium:udid': 'emulator-5554',
     'appium:platformVersion': '14',
-    
+
     'appium:autoGrantPermissions': true,
+    'appium:ignoreHiddenApiPolicyError': true,
     'appium:noReset': true,
-    'appium:fullReset': false, 
-    'appium:autoLaunch': true, // <--- مهم جداً: عشان يفتح التطبيق أوتوماتيك
+    'appium:fullReset': false,
+    'appium:autoLaunch': true,
     'appium:newCommandTimeout': 1800,
     'appium:adbExecTimeout': 60000,
-    
-    // مسار الـ APK
-    'appium:app': path.join(__dirname, 'apks', 'app-release.apk'),
-    
-    // بيانات التطبيق
-    'appium:appPackage': 'com.parktechnology.purse.dev',
+    'appium:uiautomator2ServerLaunchTimeout': 120000,
+    'appium:uiautomator2ServerInstallTimeout': 120000,
+
+    'appium:appPackage': APP_PACKAGE,
     'appium:appActivity': '.MainActivity',
   }],
 
- onPrepare: () => {
-    // ✅ Write Allure environment.properties (STAGING)
+  onPrepare: () => {
     try {
-        const allureResultsDir = path.join(__dirname, 'allure-results');
-        if (!fs.existsSync(allureResultsDir)) fs.mkdirSync(allureResultsDir, { recursive: true });
+      const dir = path.join(__dirname, 'allure-results');
+      fs.mkdirSync(dir, { recursive: true });
 
-        const envContent = [
-            'Environment=STAGING',
-            'Platform=Android',
-            'DeviceName=emulator-5554',
-            'PlatformVersion=14',
-            'AppPackage=com.parktechnology.purse.dev',
-            'Runner=GitHub Actions',
-            `Workflow=${process.env.GITHUB_WORKFLOW || 'unknown'}`,
-            `RunId=${process.env.GITHUB_RUN_ID || 'unknown'}`,
-            `Branch=${process.env.GITHUB_REF_NAME || 'unknown'}`,
-            `Commit=${process.env.GITHUB_SHA || 'unknown'}`,
-            `Actor=${process.env.GITHUB_ACTOR || 'unknown'}`,
-            `Timestamp=${new Date().toISOString()}`
-        ].join('\n');
-        fs.writeFileSync(path.join(allureResultsDir, 'environment.properties'), envContent);
+      const envContent = [
+        'Environment=STAGING',
+        'Platform=Android',
+        'DeviceName=emulator-5554',
+        'PlatformVersion=14',
+        `AppPackage=${APP_PACKAGE}`,
+        'Runner=GitHub Actions',
+        `Workflow=${process.env.GITHUB_WORKFLOW || 'unknown'}`,
+        `RunId=${process.env.GITHUB_RUN_ID || 'unknown'}`,
+        `Branch=${process.env.GITHUB_REF_NAME || 'unknown'}`,
+        `Commit=${process.env.GITHUB_SHA || 'unknown'}`,
+        `Actor=${process.env.GITHUB_ACTOR || 'unknown'}`,
+        `Timestamp=${new Date().toISOString()}`,
+      ].join('\n');
+      fs.writeFileSync(path.join(dir, 'environment.properties'), envContent);
 
-        const executor = {
-            name: 'GitHub Actions',
-            type: 'github',
-            buildName: `run-${process.env.GITHUB_RUN_ID || 'unknown'}`,
-            buildUrl: `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
-        };
-        fs.writeFileSync(path.join(allureResultsDir, 'executor.json'), JSON.stringify(executor, null, 2));
-
-        console.log('✅ Allure environment.properties + executor.json written (STAGING)');
+      const executor = {
+        name: 'GitHub Actions',
+        type: 'github',
+        buildName: `run-${process.env.GITHUB_RUN_ID || 'unknown'}`,
+        buildUrl: `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+      };
+      fs.writeFileSync(path.join(dir, 'executor.json'), JSON.stringify(executor, null, 2));
     } catch (err) {
-        console.warn('⚠️ Failed to write Allure env/executor files:', err.message);
+      console.warn('⚠️ Failed to write Allure env/executor files:', err.message);
     }
-    console.log('📦 onPrepare: cleaning up before Appium starts (CI Mode)');
-    try { execSync('adb shell pkill -f uiautomator', { stdio: 'ignore' }); } catch {}
-    try { execSync('adb shell rm -f /sdcard/DCIM/Camera/*.png', { stdio: 'ignore' }); } catch {}
-    try { execSync('adb shell screencap -p /sdcard/DCIM/Camera/onPrepare.png', { stdio: 'ignore' }); } catch {}
 
-    ['diagnostics', 'screenshots', 'logs'].forEach(dir => {
-      const d = path.join(__dirname, dir);
-      if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
-    });
+    // زي اللوكال: force-stop بس قبل بداية الـ session
+    try {
+      execSync('adb shell am force-stop io.appium.uiautomator2.server', { stdio: 'ignore' });
+      execSync('adb shell am force-stop io.appium.uiautomator2.server.test', { stdio: 'ignore' });
+    } catch {}
+
+    ['screenshots', 'logs'].forEach((d) => fs.mkdirSync(path.join(__dirname, d), { recursive: true }));
   },
 
   beforeTest: async () => {
-    // بنستنى شوية عشان التطبيق يفتح، وبعدين نتعامل مع أي رسايل خطأ
-    await browser.pause(2000);
-    await handleSystemUIDialog();
+    try { execSync('adb logcat -c', { stdio: 'ignore' }); } catch {}
+
+    try {
+      await driver.activateApp(APP_PACKAGE);
+      await driver.waitUntil(
+        async () => (await driver.getCurrentPackage()) === APP_PACKAGE,
+        { timeout: 20000, interval: 500, timeoutMsg: 'App did not become ready in 20s' }
+      );
+      await browser.pause(2000);
+      await handleSystemUIDialog();
+    } catch (err) {
+      console.warn('⚠️ Could not activate app:', err.message);
+    }
   },
-  
+
   afterTest: async (test, context, { error }) => {
-    const safeName = test.title.replace(/[^a-zA-Z0-9]/g, '_');
-    const status = error ? 'FAIL' : 'PASS';
-    
-    // لقطة شاشة
+    const safeName = test.title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 80);
+    const status = error ? 'FAILED' : 'PASSED';
+
     try {
       const shotPath = path.join(__dirname, 'screenshots', `${safeName}_${status}.png`);
       await browser.saveScreenshot(shotPath);
@@ -113,41 +124,178 @@ exports.config = {
       console.warn(`❌ Failed to save screenshot: ${e.message}`);
     }
 
-    // لوجات الجهاز
     try {
-      const logFile = path.join(__dirname, 'logs', `logcat_${Date.now()}.txt`);
-      execSync(`adb logcat -d -v time > ${logFile}`);
-      console.log(`📄 Logcat dumped: ${logFile}`);
+      const logFile = path.join(__dirname, 'logs', `logcat_${safeName}_${status}.txt`);
+      execSync(`adb logcat -d -v time > "${logFile}"`);
     } catch (e) {
       console.warn(`❌ Failed to dump logcat: ${e.message}`);
     }
 
-    // --- تنظيف التطبيق بعد كل اختبار (مهم جداً للجلسات المتعددة) ---
     try {
-      console.log('🧹 Terminating app after test...');
-      await driver.terminateApp('com.parktechnology.purse.dev');
-      console.log('✅ App terminated successfully');
+      await driver.terminateApp(APP_PACKAGE);
     } catch (err) {
       console.warn('⚠️ Could not terminate app:', err.message);
     }
 
-    // --- تنظيف عمليات uiautomator العالقة ---
-    try {
-      execSync('adb shell pkill -f uiautomator', { stdio: 'ignore' });
-      console.log('🧹 Cleaned up uiautomator processes');
-    } catch (err) {
-      // تجاهل الخطأ
-    }
+    // مفيش pkill -f uiautomator: الـ session محتاجاه
+    await driver.pause(1000);
   },
 
-  onComplete: () => new Promise((resolve, reject) => {
-    console.log('🎉 onComplete: generating Allure report (CI Mode)');
-    try {
-      execSync('allure generate allure-results --clean');
-      resolve();
-    } catch (error) {
-      console.error('Failed to generate Allure report:', error);
-      reject(error);
-    }
-  }),
+  // الـ Allure report بيتعمل في الـ workflow
+  onComplete: () => {
+    console.log('🎉 Tests finished. Allure report is generated by the workflow.');
+  },
 };
+// const { execSync } = require('child_process');
+// const fs = require('fs');
+// const path = require('path');
+// const baseConfig = require('./wdio.conf.js');
+
+// // Helper to handle the System UI crash dialog
+// const handleSystemUIDialog = async () => {
+//   try {
+//     const closeButton = await $('android=new UiSelector().textContains("Close app")');
+//     if (await closeButton.waitForDisplayed({ timeout: 5000 })) {
+//       console.warn('⚠️ System UI crash dialog found. Clicking "Close app"...');
+//       await browser.pause(500);
+//       await closeButton.click();
+//       await browser.pause(3000);
+//     }
+//   } catch {
+//     // no dialog present
+//   }
+// };
+
+// exports.config = {
+//   ...baseConfig.config,
+
+//   maxInstances: 1,
+//   connectionRetryTimeout: 120000,
+//   connectionRetryCount: 3,
+//   specFileRetries: 1,
+
+//   capabilities: [{
+//     platformName: 'Android',
+//     'appium:automationName': 'UiAutomator2',
+    
+//     // إعدادات الـ Emulator (تأكد من اسم ونسخة الـ Emulator عندك في البايب لاين)
+//     'appium:deviceName': 'emulator-5554',
+//     'appium:platformVersion': '14',
+    
+//     'appium:autoGrantPermissions': true,
+//     'appium:noReset': true,
+//     'appium:fullReset': false, 
+//     'appium:autoLaunch': true, // <--- مهم جداً: عشان يفتح التطبيق أوتوماتيك
+//     'appium:newCommandTimeout': 1800,
+//     'appium:adbExecTimeout': 60000,
+    
+//     // مسار الـ APK
+//     'appium:app': path.join(__dirname, 'apks', 'app-release.apk'),
+    
+//     // بيانات التطبيق
+//     'appium:appPackage': 'com.parktechnology.purse.dev',
+//     'appium:appActivity': '.MainActivity',
+//   }],
+
+//  onPrepare: () => {
+//     // ✅ Write Allure environment.properties (STAGING)
+//     try {
+//         const allureResultsDir = path.join(__dirname, 'allure-results');
+//         if (!fs.existsSync(allureResultsDir)) fs.mkdirSync(allureResultsDir, { recursive: true });
+
+//         const envContent = [
+//             'Environment=STAGING',
+//             'Platform=Android',
+//             'DeviceName=emulator-5554',
+//             'PlatformVersion=14',
+//             'AppPackage=com.parktechnology.purse.dev',
+//             'Runner=GitHub Actions',
+//             `Workflow=${process.env.GITHUB_WORKFLOW || 'unknown'}`,
+//             `RunId=${process.env.GITHUB_RUN_ID || 'unknown'}`,
+//             `Branch=${process.env.GITHUB_REF_NAME || 'unknown'}`,
+//             `Commit=${process.env.GITHUB_SHA || 'unknown'}`,
+//             `Actor=${process.env.GITHUB_ACTOR || 'unknown'}`,
+//             `Timestamp=${new Date().toISOString()}`
+//         ].join('\n');
+//         fs.writeFileSync(path.join(allureResultsDir, 'environment.properties'), envContent);
+
+//         const executor = {
+//             name: 'GitHub Actions',
+//             type: 'github',
+//             buildName: `run-${process.env.GITHUB_RUN_ID || 'unknown'}`,
+//             buildUrl: `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+//         };
+//         fs.writeFileSync(path.join(allureResultsDir, 'executor.json'), JSON.stringify(executor, null, 2));
+
+//         console.log('✅ Allure environment.properties + executor.json written (STAGING)');
+//     } catch (err) {
+//         console.warn('⚠️ Failed to write Allure env/executor files:', err.message);
+//     }
+//     console.log('📦 onPrepare: cleaning up before Appium starts (CI Mode)');
+//     try { execSync('adb shell pkill -f uiautomator', { stdio: 'ignore' }); } catch {}
+//     try { execSync('adb shell rm -f /sdcard/DCIM/Camera/*.png', { stdio: 'ignore' }); } catch {}
+//     try { execSync('adb shell screencap -p /sdcard/DCIM/Camera/onPrepare.png', { stdio: 'ignore' }); } catch {}
+
+//     ['diagnostics', 'screenshots', 'logs'].forEach(dir => {
+//       const d = path.join(__dirname, dir);
+//       if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+//     });
+//   },
+
+//   beforeTest: async () => {
+//     // بنستنى شوية عشان التطبيق يفتح، وبعدين نتعامل مع أي رسايل خطأ
+//     await browser.pause(2000);
+//     await handleSystemUIDialog();
+//   },
+  
+//   afterTest: async (test, context, { error }) => {
+//     const safeName = test.title.replace(/[^a-zA-Z0-9]/g, '_');
+//     const status = error ? 'FAIL' : 'PASS';
+    
+//     // لقطة شاشة
+//     try {
+//       const shotPath = path.join(__dirname, 'screenshots', `${safeName}_${status}.png`);
+//       await browser.saveScreenshot(shotPath);
+//       console.log(`📸 Screenshot saved: ${shotPath}`);
+//     } catch (e) {
+//       console.warn(`❌ Failed to save screenshot: ${e.message}`);
+//     }
+
+//     // لوجات الجهاز
+//     try {
+//       const logFile = path.join(__dirname, 'logs', `logcat_${Date.now()}.txt`);
+//       execSync(`adb logcat -d -v time > ${logFile}`);
+//       console.log(`📄 Logcat dumped: ${logFile}`);
+//     } catch (e) {
+//       console.warn(`❌ Failed to dump logcat: ${e.message}`);
+//     }
+
+//     // --- تنظيف التطبيق بعد كل اختبار (مهم جداً للجلسات المتعددة) ---
+//     try {
+//       console.log('🧹 Terminating app after test...');
+//       await driver.terminateApp('com.parktechnology.purse.dev');
+//       console.log('✅ App terminated successfully');
+//     } catch (err) {
+//       console.warn('⚠️ Could not terminate app:', err.message);
+//     }
+
+//     // --- تنظيف عمليات uiautomator العالقة ---
+//     try {
+//       execSync('adb shell pkill -f uiautomator', { stdio: 'ignore' });
+//       console.log('🧹 Cleaned up uiautomator processes');
+//     } catch (err) {
+//       // تجاهل الخطأ
+//     }
+//   },
+
+//   onComplete: () => new Promise((resolve, reject) => {
+//     console.log('🎉 onComplete: generating Allure report (CI Mode)');
+//     try {
+//       execSync('allure generate allure-results --clean');
+//       resolve();
+//     } catch (error) {
+//       console.error('Failed to generate Allure report:', error);
+//       reject(error);
+//     }
+//   }),
+// };

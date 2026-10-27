@@ -1,161 +1,109 @@
+name: Android E2E Tests
 
-# name: Android E2E Tests
+on:
+  workflow_dispatch:
+    inputs:
+      apk_tag:
+        description: 'Release tag للـ APK'
+        required: false
+        default: 'v1.0.0'
 
-# on:
-#   workflow_dispatch:
+permissions:
+  contents: read
 
-# jobs:
-#   e2e-tests:
-#     runs-on: ubuntu-latest
-#     env:
-#       AVD_NAME: testAVD
-#       ANDROID_AVD_HOME: $HOME/.android/avd
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
 
-#     steps:
-#       - name: 📥 Checkout Code
-#         uses: actions/checkout@v3
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
 
-#       - name: 🧱 Set up Node.js
-#         uses: actions/setup-node@v3
-#         with:
-#           node-version: '18'
+      - name: 🧱 Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-#       - name: 📦 Install Dependencies
-#         run: npm install
+      - name: ☕ Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
-#       - name: ☕ Set up Java
-#         uses: actions/setup-java@v3
-#         with:
-#           distribution: 'zulu'
-#           java-version: '17'
+      - name: 📦 Install Dependencies
+        run: npm ci
 
-#       - name: 📦 Install Android SDK & Required Tools
-#         run: |
-#           sudo apt-get update
-#           sudo apt-get install -y unzip wget
-#           mkdir -p $ANDROID_HOME/cmdline-tools
-#           wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O tools.zip
-#           unzip tools.zip -d $ANDROID_HOME/cmdline-tools
-#           mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-#           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-#           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install \
-#             "platform-tools" \
-#             "emulator" \
-#             "platforms;android-34" \
-#             "system-images;android-34;google_apis;x86_64" \
-#             "build-tools;34.0.0"
-#           echo "$ANDROID_HOME/emulator" >> $GITHUB_PATH
-#           echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
-#       - name: 🔧 KVM Setup
-#         run: |
-#           sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
-#           sudo gpasswd -a $USER kvm
-#           sudo chmod 666 /dev/kvm
-#       - name: 📱 Create and Configure AVD
-#         run: |
-#           mkdir -p "$ANDROID_AVD_HOME"
-#           echo "no" | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd \
-#             --name "$AVD_NAME" \
-#             --package "system-images;android-34;google_apis;x86_64" \
-#             --device "pixel" --force
-#           CONFIG_FILE="$ANDROID_AVD_HOME/${AVD_NAME}.avd/config.ini"
-#           for i in {1..30}; do
-#             [ -f "$CONFIG_FILE" ] && break
-#             sleep 2
-#           done
-#           if [ -f "$CONFIG_FILE" ]; then
-#             echo "hw.ramSize=4096" >> "$CONFIG_FILE"
-#             echo "hw.gpu.enabled=yes" >> "$CONFIG_FILE"
-#             echo "hw.gpu.mode=swiftshader_indirect" >> "$CONFIG_FILE"
-#           else
-#             echo "::error::AVD config.ini not found at $CONFIG_FILE"
-#             ls -l "$ANDROID_AVD_HOME"
-#             exit 1
-#           fi
-#       - name: 🚀 Start Emulator
-#         run: |
-#           nohup $ANDROID_HOME/emulator/emulator \
-#             -avd "$AVD_NAME" \
-#             -no-audio -no-window \
-#             -gpu swiftshader_indirect \
-#             -no-boot-anim -no-snapshot-load &
-#       - name: ⏳ Wait for Emulator to Boot
-#         run: |
-#           adb wait-for-device
-#           boot_completed=""
-#           timeout=480
-#           count=0
-#           until [[ "$boot_completed" == "1" || $count -ge $timeout ]]; do
-#             boot_completed=$(adb shell getprop sys.boot_completed | tr -d '\r')
-#             echo "Waiting for emulator to boot... ($count s) - boot_completed: $boot_completed"
-#             sleep 5
-#             count=$((count + 5))
-#           done
-#           if [ "$boot_completed" != "1" ]; then
-#             echo "::error::Emulator failed to boot"
-#             adb shell getprop
-#             exit 1
-#           fi
-#       - name: 🔇 Disable Animations
-#         run: |
-#           adb shell settings put global window_animation_scale 0
-#           adb shell settings put global transition_animation_scale 0
-#           adb shell settings put global animator_duration_scale 0
-#       - name: 📦 Install gdown and Download APKs
-#         run: |
-#           pip install --user gdown
-#           ~/.local/bin/gdown --fuzzy "https://drive.google.com/file/d/1moB6CyW6wC5MJDlDlfkT_TZ0QIfsuNEz/view?usp=drive_link" -O appclient.apk
-#           ~/.local/bin/gdown --fuzzy "https://drive.google.com/file/d/1MKToOdsMRfzuX4yI18hhKRZWt8rCZWLH/view?usp=drive_link" -O app-release-trainer.apk
-#       - name: 📲 Install APKs
-#         run: |
-#           adb install -r app-release-trainer.apk
-#           adb install -r appclient.apk
-#       - name: 🧪 Start Appium Server
-#         run: |
-#           mkdir -p logs
-#           nohup npx appium --relaxed-security --log-timestamp > logs/appium.log 2>&1 &
-#           sleep 10
-#       - name: 🧪 Run E2E Tests
-#         run: npx wdio run ./wdio.ci.conf.js
-#         continue-on-error: true
+      - name: 🔌 Install Appium UiAutomator2 driver
+        run: npx appium driver install uiautomator2
 
-#       - name: ⚙️ Generate Allure Report
-#         run: |
-#           npm install -g allure-commandline
-#           allure generate allure-results --clean -o allure-report
-#       - name: 📤 Upload Allure Report Artifact
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: allure-report-${{ github.run_id }}
-#           path: allure-report
-#       - name: 📝 Add README to Allure Artifact
-#         run: |
-#           cat > allure-report/README.txt <<'EOF'
-#           How to view this Allure report:
-#           1. Unzip this artifact.
-#           2. Open a terminal inside the unzipped folder.
-#           3. Run ONE of:
-#                npx http-server .
-#                npx allure open .
-#           4. Open the URL printed in the terminal (e.g. http://localhost:8080).
-#           DO NOT open index.html directly (double-click) — it will appear blank
-#           because the report is a Single Page Application and file:// blocks
-#           loading its data/*.json files. It must be served over HTTP.
-#           EOF
+      - name: 🔧 Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
-#       - name: 📷 Collect Diagnostics
-#         if: always()
-#         run: |
-#           mkdir -p diagnostics
-#           adb logcat -d > diagnostics/logcat.log
-#           adb shell screencap -p /sdcard/failure.png || true
-#           adb pull /sdcard/failure.png diagnostics/device-screenshot.png || true
-#           cp -r screenshots diagnostics/ || true
-#           cp -r logs diagnostics/ || true
-#       - name: 📤 Upload Diagnostics
-#         if: always()
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: e2e-results-${{ github.run_id }}
-#           path: diagnostics/
-#           retention-days: 7
+      - name: ⬇️ Download APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK_TAG: ${{ inputs.apk_tag || 'v1.0.0' }}
+        run: |
+          mkdir -p apks
+          gh release download "$APK_TAG" --repo "${{ github.repository }}" --pattern 'app-release.apk' --dir apks --clobber
+          unzip -tq apks/app-release.apk >/dev/null || { echo "::error::APK is corrupt"; exit 1; }
+          ls -lh apks
+
+      - name: 🧪 Run E2E on Emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CI: 'true'
+          # حط هنا أي متغيرات كانت في .env لوكال، مثال:
+          # BASE_URL: ${{ secrets.BASE_URL }}
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel
+          ram-size: 3072M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash scripts/run-e2e.sh
+
+      - name: ⚙️ Generate Allure Report
+        if: always()
+        run: npx allure generate allure-results --clean -o allure-report
+
+      - name: 📝 Add README to Allure Report
+        if: always()
+        run: |
+          mkdir -p allure-report
+          cat > allure-report/README.txt <<'EOF'
+          How to view this Allure report:
+          1. Unzip this artifact.
+          2. Open a terminal inside the unzipped folder.
+          3. Run ONE of:
+               npx http-server .
+               npx allure open .
+          4. Open the URL printed in the terminal.
+          DO NOT open index.html directly (double-click), it will appear blank.
+          EOF
+
+      - name: 📤 Upload Allure Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report-${{ github.run_id }}
+          path: allure-report
+          if-no-files-found: warn
+
+      - name: 📤 Upload Diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results-${{ github.run_id }}
+          path: |
+            diagnostics/
+            allure-results/
+          retention-days: 7
+          if-no-files-found: warn

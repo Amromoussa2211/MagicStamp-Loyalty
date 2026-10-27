@@ -22,3 +22,11 @@ apks/*.apk
 .idea/
 .vscode/
 *.log
+apks/
+allure-results/
+allure-report/
+screenshots/
+logs/
+diagnostics/
+.env
+node_modules/
