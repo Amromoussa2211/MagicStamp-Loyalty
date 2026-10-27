@@ -20,6 +20,7 @@ exports.config = {
     bail: 0,
     waitforTimeout: 15000,
     connectionRetryTimeout: 200000,
+    // connectionRetryCount: 3,
 
     services: ['appium'],
     
