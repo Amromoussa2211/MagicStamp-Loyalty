@@ -1,6 +1,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const allure = require('@wdio/allure-reporter').default;
 const baseConfig = require('./wdio.conf.js');
 
 const APP_PACKAGE = 'com.parktechnology.purse.dev';
@@ -138,8 +139,11 @@ exports.config = {
     const status = error ? 'FAILED' : 'PASSED';
 
     try {
+      const png = await browser.takeScreenshot();
+      const buf = Buffer.from(png, 'base64');
       const shotPath = path.join(__dirname, 'screenshots', `${safeName}_${status}.png`);
-      await browser.saveScreenshot(shotPath);
+      fs.writeFileSync(shotPath, buf);
+      allure.addAttachment(`Screenshot (${status})`, buf, 'image/png');
       console.log(`📸 Screenshot saved: ${shotPath}`);
     } catch (e) {
       console.warn(`❌ Failed to save screenshot: ${e.message}`);

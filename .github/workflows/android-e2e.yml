@@ -69,6 +69,12 @@ jobs:
           emulator-boot-timeout: 600
           script: bash scripts/run-e2e.sh
 
+      - name: 🔍 Check results
+        if: always()
+        run: |
+          echo "--- allure-results ---"; ls -la allure-results | head -30
+          echo "--- screenshots ---"; ls -la screenshots || true
+
       - name: ⚙️ Generate Allure Report
         if: always()
         run: npx allure generate allure-results --clean -o allure-report
@@ -94,6 +100,14 @@ jobs:
         with:
           name: allure-report-${{ github.run_id }}
           path: allure-report
+          if-no-files-found: warn
+
+      - name: 📤 Upload Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.run_id }}
+          path: screenshots/
           if-no-files-found: warn
 
       - name: 📤 Upload Diagnostics
