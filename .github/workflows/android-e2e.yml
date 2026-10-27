@@ -33,7 +33,7 @@ jobs:
           java-version: '17'
 
       - name: 📦 Install Dependencies
-        run: npm ci
+        run: npm install
 
       - name: 🔌 Install Appium UiAutomator2 driver
         run: npx appium driver install uiautomator2
