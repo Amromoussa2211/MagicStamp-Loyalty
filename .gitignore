@@ -10,6 +10,10 @@ logs/
 screenshots/
 diagnostics/
 
+# Playwright local artifacts (traces, failure screenshots)
+test-results/
+playwright-report/
+
 # Environment & Secrets
 .env
 .env.*

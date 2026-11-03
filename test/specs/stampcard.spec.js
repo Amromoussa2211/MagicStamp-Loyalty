@@ -1,12 +1,15 @@
 // ============================================================
 // Config
 // ============================================================
-const TOTAL_STAMPS = 10;
+const TOTAL_STAMPS = 10; // fallback فقط لو العداد مش مقروء (للتشخيص)
 const REWARD_TEXT = 'You did it! 🎉';
 const ADD_NEW_CARD = 'android=new UiSelector().text("Add new card")';
 const REMOVE_BTN = 'android=new UiSelector().descriptionStartsWith("Remove ")';
 const ADD_BTN = 'android=new UiSelector().descriptionMatches("^Add .* stamp card$")';
-const CARDS_TO_USE = 2; // أول كاردين Add ظاهرين في الشيت
+const CARDS_TO_USE = 2;
+
+const MAX_STAMP_ATTEMPTS = 20;      // حد أقصى احتياطي للمحاولات
+const PAUSE_AFTER_STAMP_MS = 2000;  // استنى بعد كل استامب قبل ما تشوف الرسالة
 
 // ============================================================
 // Helpers
@@ -22,15 +25,41 @@ async function isDisplayedSafe(selector) {
   return await el.isDisplayed().catch(() => false);
 }
 
+// يدور على رسالة النجاح بأكتر من طريقة (text / textContains / content-desc)
 async function isRewardShown() {
-  return await isDisplayedSafe(`android=new UiSelector().text("${REWARD_TEXT}")`);
+  if (await isDisplayedSafe(`android=new UiSelector().text("${REWARD_TEXT}")`)) return true;
+  if (await isDisplayedSafe('android=new UiSelector().textContains("did it")')) return true;
+  if (await isDisplayedSafe('android=new UiSelector().descriptionContains("did it")')) return true;
+  return false;
 }
 
-// بيقرا العدد الحالي من الـ page source (مثلاً "7/10" أو "7 of 10")
+// ============================================================
+// getStampCount — للتشخيص فقط (مش للتحكم في الـ loop)
+// بيرجع { current, total } أو null
+// ============================================================
 async function getStampCount() {
   const src = await driver.getPageSource();
-  const m = src.match(new RegExp(`(\\d+)\\s*(?:/|of|out of)\\s*${TOTAL_STAMPS}`, 'i'));
-  return m ? parseInt(m[1], 10) : null;
+
+  // 1) من content-desc بتاع زرار التقدم
+  //    مثال: "1 of 8 stamps to get reward..."
+  const descMatch = src.match(/content-desc="(\d+)\s+of\s+(\d+)\s+stamps?/i);
+  if (descMatch) {
+    return {
+      current: parseInt(descMatch[1], 10),
+      total: parseInt(descMatch[2], 10),
+    };
+  }
+
+  // 2) fallback: من النص "1/8"
+  const textMatch = src.match(/text="(\d+)\s*\/\s*(\d+)"/);
+  if (textMatch) {
+    return {
+      current: parseInt(textMatch[1], 10),
+      total: parseInt(textMatch[2], 10),
+    };
+  }
+
+  return null;
 }
 
 // بيدور على العنصر من جديد في كل محاولة، ويعيد لو حصل stale
@@ -95,12 +124,13 @@ async function makeStamp({ isRegistered, fiveFingerHoldMs = 30000, fallbackRound
     ]);
   } catch (err) {
     console.warn('⚠️ 5-finger gesture failed:', err.message);
+    if (/session|invalid|disconnected/i.test(err.message)) throw err;
   } finally {
     await driver.releaseActions().catch(() => {});
   }
 
-  await driver.pause(1000);
-  if (await isRegistered()) {
+  await driver.pause(1500);
+  if (isRegistered && (await isRegistered())) {
     console.log('✅ Stamp registered in phase 1');
     return true;
   }
@@ -140,18 +170,19 @@ async function makeStamp({ isRegistered, fiveFingerHoldMs = 30000, fallbackRound
       await driver.performActions([...fingers14, finger5]);
     } catch (err) {
       console.warn('⚠️ Phase 2 gesture failed:', err.message);
+      if (/session|invalid|disconnected/i.test(err.message)) throw err;
     } finally {
       await driver.releaseActions().catch(() => {});
     }
 
-    await driver.pause(1000);
-    if (await isRegistered()) {
+    await driver.pause(1500);
+    if (isRegistered && (await isRegistered())) {
       console.log(`✅ Stamp registered in phase 2 (round ${round})`);
       return true;
     }
   }
 
-  console.warn('❌ Stamp not registered after all rounds');
+  console.warn('❌ Stamp not confirmed by isRegistered after all rounds');
   return false;
 }
 
@@ -173,17 +204,27 @@ async function closeSheet() {
   await driver.pause(1500);
 }
 
-// Back بتاع الأندرويد (من شاشة الكارد لقائمة الكاردات)
 async function goBackToCards() {
   await driver.pause(1500);
   await driver.back();
   await driver.pause(1500);
 }
 
-// بيتأكد إن الشيت مفتوح (لو مش مفتوح بيفتحه، ولو إحنا في شاشة كارد بيرجع الأول)
 async function ensureSheetOpen() {
   if (await isDisplayedSafe('~Close')) return;
-  if (!(await isDisplayedSafe(ADD_NEW_CARD))) await goBackToCards();
+
+  if (await isDisplayedSafe(ADD_NEW_CARD)) {
+    await openAddCardSheet();
+    return;
+  }
+
+  await goBackToCards();
+
+  if (!(await isDisplayedSafe(ADD_NEW_CARD))) {
+    await driver.back().catch(() => {});
+    await driver.pause(1500);
+  }
+
   await openAddCardSheet();
 }
 
@@ -191,21 +232,49 @@ async function ensureSheetOpen() {
 // Sheet helpers
 // ============================================================
 
-// بيشيل كل الكاردات المضافة الظاهرة في الشيت (واحد واحد، وبيدور من جديد بعد كل Remove)
-async function removeAllAddedCards(maxLoops = 10) {
+// بيشيل كل الكاردات المضافة الظاهرة في الشيت
+async function removeAllAddedCards() {
   await ensureSheetOpen();
-  for (let i = 0; i < maxLoops; i++) {
+
+  let removed = 0;
+  const seen = new Set();
+
+  while (true) {
     const btn = await $(REMOVE_BTN);
-    if (!(await btn.isDisplayed().catch(() => false))) break;
+    const visible = await btn.isDisplayed().catch(() => false);
+    if (!visible) break;
+
     const desc = await btn.getAttribute('content-desc').catch(() => '');
+    if (!desc) break;
+
+    if (seen.has(desc)) {
+      console.warn(`⚠️ Same Remove button still visible: "${desc}" — stopping to avoid loop`);
+      break;
+    }
+    seen.add(desc);
+
     console.log(`🗑️ Removing: ${desc}`);
-    await btn.click().catch(() => {});
+    try {
+      await btn.click();
+    } catch (err) {
+      console.warn(`⚠️ Remove click failed: ${err.message}`);
+      break;
+    }
+
     await driver.pause(2500);
-    await ensureSheetOpen(); // لو الشيت اتقفل بعد الـ Remove
+    removed++;
+
+    await ensureSheetOpen();
+
+    if (removed >= 30) {
+      console.warn('⚠️ Removed 30 cards — stopping (safety limit)');
+      break;
+    }
   }
+
+  console.log(`✅ Removed ${removed} card(s) from sheet`);
 }
 
-// بيقرا أول N كاردات "Add" ظاهرة (بالاسم من الـ content-desc)
 async function readTopAddCards(n = CARDS_TO_USE) {
   await driver.pause(1500);
   const buttons = await $$(ADD_BTN);
@@ -213,19 +282,28 @@ async function readTopAddCards(n = CARDS_TO_USE) {
   for (const btn of buttons) {
     if (names.length >= n) break;
     if (!(await btn.isDisplayed().catch(() => false))) continue;
-    const desc = await btn.getAttribute('content-desc');
+    const desc = await btn.getAttribute('content-desc').catch(() => '');
+    if (!desc || !desc.startsWith('Add ')) continue;
+    if (!desc.endsWith(' stamp card')) continue;
     const name = desc.replace(/^Add /, '').replace(/ stamp card$/, '');
-    if (!names.includes(name)) names.push(name);
+    if (name && !names.includes(name)) names.push(name);
   }
   return names;
 }
 
-// بيضيف كارد بالاسم (بيدور عليه من جديد قبل الضغط)
 async function addCard(name) {
   await ensureSheetOpen();
   await safeClick(`~Add ${name} stamp card`);
-  console.log(`✅ Added "${name}" (app opens the card after adding)`);
   await driver.pause(2000);
+
+  const removeSel = `~Remove ${name} stamp card`;
+  const removeBtn = await $(removeSel);
+  const stillThere = await removeBtn.isDisplayed().catch(() => false);
+  if (!stillThere) {
+    console.log(`ℹ️ "${name}" added (Remove button not visible — app may have opened the card)`);
+  } else {
+    console.log(`✅ Added "${name}" (Remove button visible)`);
+  }
 }
 
 // ============================================================
@@ -261,18 +339,18 @@ describe('Magic Stamp - Navigation & Filtering', () => {
     await closeSheet();
     await ensureSheetOpen();
 
-    // 3. اقرا أول كاردين ظاهرين (كلهم Add دلوقتي)
+    // 3. اقرا أول كاردين ظاهرين
     const names = await readTopAddCards(CARDS_TO_USE);
     if (names.length < CARDS_TO_USE) {
-      throw new Error(`Expected ${CARDS_TO_USE} Add cards, found ${names.length}`);
+      throw new Error(`Expected ${CARDS_TO_USE} Add cards, found ${names.length}: [${names.join(', ')}]`);
     }
     console.log('📋 Cards to add:', names.join(' | '));
 
-    // 4. ضيف الأول (التطبيق هيدخل عليه) ثم Back
+    // 4. ضيف الأول ثم Back
     await addCard(names[0]);
     await goBackToCards();
 
-    // 5. افتح الشيت وضيف التاني (التطبيق هيدخل عليه = اللي هنعمل عليه الاستامبات)
+    // 5. افتح الشيت وضيف التاني (اللي هنعمل عليه الاستامبات)
     await openAddCardSheet();
     await addCard(names[1]);
     await driver.pause(1500);
@@ -288,45 +366,413 @@ describe('Magic Stamp - Navigation & Filtering', () => {
       console.warn('⚠️ Show finger guide error:', err.message);
     }
 
-    // 7. اعمل بس الاستامبات الناقصة
+    // 7. لو الكارد مكتمل خلاص → اخرج
     if (await isRewardShown()) {
       console.log('🎉 Card already complete, nothing to do');
       return;
     }
 
-    let count = await getStampCount();
-    if (count === null) {
-      console.warn('⚠️ Could not read stamp count, assuming 0');
-      count = 0;
+    // 8. اقرا العداد للتشخيص بس (مش للتحكم)
+    const startInfo = await getStampCount();
+    if (startInfo) {
+      console.log(`📊 Starting at: ${startInfo.current}/${startInfo.total} (diagnostic only)`);
+    } else {
+      console.log('📊 Stamp count unreadable at start (diagnostic only — continuing)');
     }
-    const remaining = TOTAL_STAMPS - count;
-    console.log(`📊 Current: ${count}/${TOTAL_STAMPS} → need ${remaining} more`);
 
-    for (let n = 1; n <= remaining; n++) {
-      const before = count;
-      console.log(`\n🎯 Stamp ${n}/${remaining} (card at ${before})`);
+    // 9. الـ loop الأساسي: اعمل استامب لحد ما رسالة النجاح تظهر
+    let attempt = 0;
+    let success = false;
 
-      const ok = await makeStamp({
+    while (attempt < MAX_STAMP_ATTEMPTS) {
+      attempt++;
+      console.log(`\n🎯 Stamp attempt ${attempt}/${MAX_STAMP_ATTEMPTS}`);
+
+      const infoBefore = await getStampCount();
+
+      // 9a. اعمل استامب
+      // isRegistered هنا بس عشان makeStamp تقرر تكمّل Phase 2 ولا لأ
+      await makeStamp({
         isRegistered: async () => {
           if (await isRewardShown()) return true;
-          const c = await getStampCount();
-          if (c === null) return true;
-          return c > before;
+          const info = await getStampCount();
+          if (info === null) return false;
+          // لو العداد زاد عن آخر قراءة → فيه تقدم
+          return infoBefore ? info.current > infoBefore.current : false;
         },
       });
 
-      if (!ok) throw new Error(`Stamp ${n} failed (card stuck at ${before}/${TOTAL_STAMPS})`);
+      // 9b. استنى شوية (animation / تحديث الشاشة)
+      await driver.pause(PAUSE_AFTER_STAMP_MS);
 
-      if (await isRewardShown()) break;
-      count = (await getStampCount()) ?? before + 1;
+      // 9c. الشرط الحقيقي: هل الرسالة ظهرت؟
+      if (await isRewardShown()) {
+        console.log(`\n🎉 SUCCESS! Reward message appeared after ${attempt} stamp attempt(s)`);
+        success = true;
+        break;
+      }
+
+      // 9d. تشخيص: اقرا العداد (اختياري)
+      const info = await getStampCount();
+      if (info) {
+        console.log(`   📊 Now at: ${info.current}/${info.total} (diagnostic)`);
+      } else {
+        console.log('   📊 Stamp count unreadable (diagnostic)');
+      }
     }
 
-    // 8. تأكد إن رسالة النجاح ظهرت
+    // 10. لو خلصت المحاولات ومفيش رسالة → فشل
+    if (!success) {
+      throw new Error(
+        `❌ After ${MAX_STAMP_ATTEMPTS} attempts, reward message "${REWARD_TEXT}" did not appear`
+      );
+    }
+
+    // 11. تأكيد نهائي إن الرسالة ظاهرة
     const msg = await $(`android=new UiSelector().text("${REWARD_TEXT}")`);
     await msg.waitForDisplayed({ timeout: 15000 });
     console.log('🎉 SUCCESS: "You did it! 🎉" displayed');
   });
 });
+// // ============================================================
+// // Config
+// // ============================================================
+// const TOTAL_STAMPS = 10;
+// const REWARD_TEXT = 'You did it! 🎉';
+// const ADD_NEW_CARD = 'android=new UiSelector().text("Add new card")';
+// const CARD_BTN = 'android=new UiSelector().descriptionMatches("^(Add|Remove) .* stamp card$")';
+// const CARDS_TO_USE = 2; // أول كاردين ظاهرين في الشيت
+
+// // ============================================================
+// // Helpers
+// // ============================================================
+// async function getCenter(el) {
+//   const loc = await el.getLocation();
+//   const size = await el.getSize();
+//   return { x: Math.floor(loc.x + size.width / 2), y: Math.floor(loc.y + size.height / 2) };
+// }
+
+// async function isDisplayedSafe(selector) {
+//   const el = await $(selector);
+//   return await el.isDisplayed().catch(() => false);
+// }
+
+// async function isRewardShown() {
+//   return await isDisplayedSafe(`android=new UiSelector().text("${REWARD_TEXT}")`);
+// }
+
+// // بيقرا العدد الحالي من الـ page source (مثلاً "7/10" أو "7 of 10")
+// async function getStampCount() {
+//   const src = await driver.getPageSource();
+//   const m = src.match(new RegExp(`(\\d+)\\s*(?:/|of|out of)\\s*${TOTAL_STAMPS}`, 'i'));
+//   return m ? parseInt(m[1], 10) : null;
+// }
+
+// async function safeClick(selector, { timeout = 10000, retries = 3 } = {}) {
+//   for (let i = 1; i <= retries; i++) {
+//     try {
+//       const el = await $(selector);
+//       await el.waitForDisplayed({ timeout });
+//       await el.click();
+//       return;
+//     } catch (err) {
+//       const stale = /stale|does not exist in DOM/i.test(err.message);
+//       if (!stale || i === retries) throw err;
+//       console.warn(`⚠️ Stale element on "${selector}", retry ${i}/${retries}`);
+//       await driver.pause(1000);
+//     }
+//   }
+// }
+
+// // ============================================================
+// // makeStamp
+// // Phase 1: 5 fingers together for 30s
+// // Phase 2 (fallback): 4 fingers held + tapping 5
+// // ============================================================
+// async function makeStamp({ isRegistered, fiveFingerHoldMs = 30000, fallbackRounds = 5 } = {}) {
+//   for (const label of ['1', '2', '3', '4']) {
+//     const el = await $(`android=new UiSelector().text("${label}")`);
+//     await el.waitForDisplayed({ timeout: 10000 });
+//   }
+
+//   const points = [
+//     { x: 245, y: 690 },
+//     { x: 476, y: 690 },
+//     { x: 204, y: 915 },
+//     { x: 516, y: 915 },
+//   ];
+//   let p5 = { x: 360, y: 939 };
+//   try {
+//     const el5 = await $('android=new UiSelector().text("5")');
+//     if (await el5.isDisplayed().catch(() => false)) p5 = await getCenter(el5);
+//   } catch {}
+//   console.log(`📍 Finger 5 at (${p5.x}, ${p5.y})`);
+
+//   const holdFinger = (point, i, holdMs) => ({
+//     type: 'pointer',
+//     id: `finger${i + 1}`,
+//     parameters: { pointerType: 'touch' },
+//     actions: [
+//       { type: 'pointerMove', duration: 0, x: point.x, y: point.y },
+//       { type: 'pointerDown', button: 0 },
+//       { type: 'pause', duration: holdMs },
+//       { type: 'pointerUp', button: 0 },
+//     ],
+//   });
+
+//   // ---------- Phase 1 ----------
+//   try {
+//     console.log(`🖐️ Phase 1: 5 fingers for ${fiveFingerHoldMs / 1000}s`);
+//     await driver.performActions([
+//       ...points.map((p, i) => holdFinger(p, i, fiveFingerHoldMs)),
+//       holdFinger(p5, 4, fiveFingerHoldMs),
+//     ]);
+//   } catch (err) {
+//     console.warn('⚠️ 5-finger gesture failed:', err.message);
+//   } finally {
+//     await driver.releaseActions().catch(() => {});
+//   }
+
+//   await driver.pause(1000);
+//   if (await isRegistered()) {
+//     console.log('✅ Stamp registered in phase 1');
+//     return true;
+//   }
+
+//   // ---------- Phase 2 ----------
+//   console.log('🔁 Phase 2: 4 fingers held + tapping 5');
+//   const tapsPerRound = 10;
+//   const tapDown = 150;
+//   const tapGap = 400;
+//   const roundMs = 1000 + tapsPerRound * (tapDown + tapGap) + 500;
+
+//   for (let round = 1; round <= fallbackRounds; round++) {
+//     console.log(`   Round ${round}/${fallbackRounds}`);
+
+//     const fingers14 = points.map((p, i) => holdFinger(p, i, roundMs));
+
+//     const tapActions = [
+//       { type: 'pause', duration: 1000 },
+//       { type: 'pointerMove', duration: 0, x: p5.x, y: p5.y },
+//     ];
+//     for (let t = 0; t < tapsPerRound; t++) {
+//       tapActions.push(
+//         { type: 'pointerDown', button: 0 },
+//         { type: 'pause', duration: tapDown },
+//         { type: 'pointerUp', button: 0 },
+//         { type: 'pause', duration: tapGap },
+//       );
+//     }
+//     const finger5 = {
+//       type: 'pointer',
+//       id: 'finger5',
+//       parameters: { pointerType: 'touch' },
+//       actions: tapActions,
+//     };
+
+//     try {
+//       await driver.performActions([...fingers14, finger5]);
+//     } catch (err) {
+//       console.warn('⚠️ Phase 2 gesture failed:', err.message);
+//     } finally {
+//       await driver.releaseActions().catch(() => {});
+//     }
+
+//     await driver.pause(1000);
+//     if (await isRegistered()) {
+//       console.log(`✅ Stamp registered in phase 2 (round ${round})`);
+//       return true;
+//     }
+//   }
+
+//   console.warn('❌ Stamp not registered after all rounds');
+//   return false;
+// }
+
+// // ============================================================
+// // Navigation helpers
+// // ============================================================
+// async function openAddCardSheet() {
+//   await driver.pause(1000);
+//   await safeClick(ADD_NEW_CARD);
+//   await driver.pause(1500);
+// }
+
+// async function closeSheet() {
+//   try {
+//     await safeClick('~Close', { timeout: 3000 });
+//   } catch {
+//     console.log('ℹ️ Close not found (sheet may have closed itself)');
+//   }
+//   await driver.pause(1500);
+// }
+
+// // Back بتاع الأندرويد (من شاشة الكارد لقائمة الكاردات)
+// async function goBackToCards() {
+//   await driver.pause(1500);
+//   await driver.back();
+//   await driver.pause(1500);
+// }
+
+// // بيتأكد إن الشيت مفتوح (لو مش مفتوح بيفتحه، ولو إحنا في شاشة كارد بيرجع الأول)
+// async function ensureSheetOpen() {
+//   if (await isDisplayedSafe('~Close')) return;
+//   if (!(await isDisplayedSafe(ADD_NEW_CARD))) await goBackToCards();
+//   await openAddCardSheet();
+// }
+
+// // ============================================================
+// // Sheet helpers
+// // ============================================================
+
+// // بيقرا أول N كاردات ظاهرة في الشيت: [{ name, state: 'add' | 'remove' }]
+// async function readTopCards(n = CARDS_TO_USE) {
+//   await driver.pause(1000);
+//   const buttons = await $$(CARD_BTN);
+//   const cards = [];
+//   for (const btn of buttons) {
+//     if (cards.length >= n) break;
+//     if (!(await btn.isDisplayed().catch(() => false))) continue;
+//     const desc = await btn.getAttribute('content-desc');
+//     const m = desc.match(/^(Add|Remove) (.*) stamp card$/);
+//     if (m) cards.push({ name: m[2], state: m[1].toLowerCase() });
+//   }
+//   return cards;
+// }
+
+// async function removeCard(name) {
+//   await ensureSheetOpen();
+//   const sel = `~Remove ${name} stamp card`;
+//   if (!(await isDisplayedSafe(sel))) {
+//     console.log(`ℹ️ No Remove button for "${name}", skipping`);
+//     return;
+//   }
+//   await safeClick(sel);
+//   console.log(`🗑️ Removed "${name}"`);
+//   await driver.pause(2500);
+// }
+
+// async function addCard(name) {
+//   await ensureSheetOpen();
+//   const sel = `~Add ${name} stamp card`;
+//   const end = Date.now() + 10000;
+//   while (Date.now() < end && !(await isDisplayedSafe(sel))) {
+//     await driver.pause(500);
+//   }
+//   if (!(await isDisplayedSafe(sel))) {
+//     const src = await driver.getPageSource();
+//     console.log(src.split('\n').filter(l => l.includes('content-desc')).join('\n'));
+//     throw new Error(`Cannot find Add ${name} stamp card`);
+//   }
+//   await safeClick(sel);
+//   console.log(`✅ Added "${name}" (app opens the card after adding)`);
+//   await driver.pause(2000);
+// }
+
+// // ============================================================
+// // Tests
+// // ============================================================
+// describe('Magic Stamp - Navigation & Filtering', () => {
+//   it('should navigate to Stamp Cards, open Filter, and select A-Z', async () => {
+//     const stampCardsTab = await $('~Stamp Cards tab');
+//     await stampCardsTab.waitForDisplayed({ timeout: 10000 });
+//     await stampCardsTab.click();
+
+//     const filterBtn = await $('android=new UiSelector().text("Filter")');
+//     await filterBtn.waitForDisplayed({ timeout: 5000 });
+//     await filterBtn.click();
+
+//     const sortAZ = await $('android=new UiSelector().text("A–Z")');
+//     await sortAZ.waitForDisplayed({ timeout: 5000 });
+//     await sortAZ.click();
+
+//     const closeIcon = await $('android=new UiSelector().className("com.horcrux.svg.PathView").instance(0)');
+//     await closeIcon.waitForDisplayed({ timeout: 5000 });
+//     await closeIcon.click();
+
+//     console.log('✅ Test 1 done');
+//   });
+
+//   it('should navigate close place from selected location', async () => {
+//     // 1. افتح الشيت واقرا أول كاردين ظاهرين
+//     await openAddCardSheet();
+//     const cards = await readTopCards(CARDS_TO_USE);
+//     if (cards.length < CARDS_TO_USE) {
+//       throw new Error(`Expected ${CARDS_TO_USE} cards in the sheet, found ${cards.length}`);
+//     }
+//     console.log('📋 Top cards:', cards.map(c => `${c.name} (${c.state})`).join(' | '));
+
+//     // 2. اللي متضاف → شيله
+//     const toRemove = cards.filter(c => c.state === 'remove');
+//     for (const c of toRemove) {
+//       await removeCard(c.name);
+//     }
+
+//     // 3. لو شيلنا حاجة: اقفل الشيت وافتحه تاني
+//     if (toRemove.length > 0) {
+//       if (await isDisplayedSafe('~Close')) await closeSheet();
+//       await ensureSheetOpen();
+//     }
+
+//     // 4. ضيف الكارد الأول (التطبيق هيدخل عليه) → Back
+//     await addCard(cards[0].name);
+//     await goBackToCards();
+
+//     // 5. افتح الشيت وضيف الكارد التاني (التطبيق هيدخل عليه = اللي هنعمل عليه الاستامبات)
+//     await openAddCardSheet();
+//     await addCard(cards[1].name);
+//     await driver.pause(1500);
+
+//     // 6. Show finger guide (لو موجود)
+//     try {
+//       if (await isDisplayedSafe('~Show finger guide')) {
+//         await safeClick('~Show finger guide');
+//         console.log('✅ Clicked Show finger guide');
+//         await driver.pause(1000);
+//       }
+//     } catch (err) {
+//       console.warn('⚠️ Show finger guide error:', err.message);
+//     }
+
+//     // 7. اعمل بس الاستامبات الناقصة
+//     if (await isRewardShown()) {
+//       console.log('🎉 Card already complete, nothing to do');
+//       return;
+//     }
+
+//     let count = await getStampCount();
+//     if (count === null) {
+//       console.warn('⚠️ Could not read stamp count, assuming 0');
+//       count = 0;
+//     }
+//     const remaining = TOTAL_STAMPS - count;
+//     console.log(`📊 Current: ${count}/${TOTAL_STAMPS} → need ${remaining} more`);
+
+//     for (let n = 1; n <= remaining; n++) {
+//       const before = count;
+//       console.log(`\n🎯 Stamp ${n}/${remaining} (card at ${before})`);
+
+//       const ok = await makeStamp({
+//         isRegistered: async () => {
+//           if (await isRewardShown()) return true;
+//           const c = await getStampCount();
+//           if (c === null) return true;
+//           return c > before;
+//         },
+//       });
+
+//       if (!ok) throw new Error(`Stamp ${n} failed (card stuck at ${before}/${TOTAL_STAMPS})`);
+
+//       if (await isRewardShown()) break;
+//       count = (await getStampCount()) ?? before + 1;
+//     }
+
+//     // 8. تأكد إن رسالة النجاح ظهرت
+//     const msg = await $(`android=new UiSelector().text("${REWARD_TEXT}")`);
+//     await msg.waitForDisplayed({ timeout: 15000 });
+//     console.log('🎉 SUCCESS: "You did it! 🎉" displayed');
+//   });
+// });
 // // ============================================================
 // // Config
 // // ============================================================

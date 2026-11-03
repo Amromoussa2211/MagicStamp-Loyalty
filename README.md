@@ -1,6 +1,6 @@
 # Mobile Automation Lab — Magic Stamp
 
-Android test automation framework built with **WebdriverIO**, **Appium**, and **JavaScript**. This project supports two execution modes: a real device (local) and an Android emulator (CI).
+Android test automation framework built with **WebdriverIO**, **Appium**, and **JavaScript**. This project supports two execution modes: a real device (local) and an Android emulator (CI). A **web (Playwright)** suite can run alongside mobile and both appear in **one combined Allure report**.
 
 ## Tech Stack
 
@@ -8,6 +8,7 @@ Android test automation framework built with **WebdriverIO**, **Appium**, and **
 |---|---|
 | Test Runner | WebdriverIO v9 |
 | Automation Engine | Appium 2.x + UiAutomator2 |
+| Web Test Runner | Playwright (Chromium) |
 | Language | JavaScript (Node.js) |
 | Test Framework | Mocha (BDD) |
 | Assertions | Built-in WebdriverIO `expect` |
@@ -17,13 +18,15 @@ Android test automation framework built with **WebdriverIO**, **Appium**, and **
 ## Project Structure
 mobile-automation-lab/
 ├── apks/ # APK under test
-├── test/specs/ # Test suites (*.spec.js)
+├── test/specs/ # Mobile test suites (*.spec.js)
+├── web/specs/ # Web test suites — Playwright (*.spec.js)
+├── playwright.config.js # Web runner config (Allure → same allure-results/)
 ├── wdio.conf.js # Base WebdriverIO configuration
 ├── wdio.local.conf.js # Local execution (real device)
 ├── wdio.ci.conf.js # CI execution (emulator)
 ├── screenshots/ # Generated per-test screenshots (ignored)
 ├── logs/ # Generated ADB logcat dumps (ignored)
-├── allure-results/ # Generated Allure raw results (ignored)
+├── allure-results/ # Generated Allure raw results — mobile + web (ignored)
 ├── allure-report/ # Generated Allure HTML report (ignored)
 └── package.json
 
@@ -69,6 +72,29 @@ After a test run, generate and open the Allure report:
 bash
 npx allure generate allure-results --clean -o allure-report
 npx allure open allure-report
+
+Web Tests (Playwright)
+Web specs live in web/specs/ and write Allure results into the same allure-results/ folder as the mobile suite, so a single report contains both.
+
+bash
+npm run test:web          # run web tests only
+npm run test:web:setup    # install Playwright Chromium browser (CI)
+npm run test:all          # mobile (local) + web + generate + open combined report
+
+Notes:
+- Web tests are tagged `layer: web` in Allure so they are easy to filter from mobile specs.
+- On macOS 12 the bundled Chromium build is unsupported; the config automatically falls back
+  to the system-installed Google Chrome (`channel: 'chrome'`). Set `PLAYWRIGHT_BROWSER` to
+  override. CI (Linux) uses the normal downloaded Chromium.
+
+GitHub Actions
+The workflow (.github/workflows/android-e2e.yml) has three jobs:
+
+- e2e-tests — boots the emulator and runs the mobile suite (unchanged behavior)
+- web-tests — runs the Playwright suite (only when the run_web input is true)
+- generate-report — merges both Allure results artifacts and generates ONE combined report
+
+To skip web tests in CI (reproduce the old mobile-only run), dispatch the workflow with `run_web: false`.
 Screenshots and Logs
 Screenshots are saved to screenshots/ after each test.
 

@@ -7,6 +7,11 @@ on:
         description: 'Release tag للـ APK'
         required: false
         default: 'v1.0.0'
+      run_web:
+        description: 'Run web (Playwright) tests in addition to mobile'
+        required: false
+        default: 'true'
+        type: boolean
 
 permissions:
   contents: read
@@ -75,31 +80,15 @@ jobs:
           echo "--- allure-results ---"; ls -la allure-results | head -30
           echo "--- screenshots ---"; ls -la screenshots || true
 
-      - name: ⚙️ Generate Allure Report
-        if: always()
-        run: npx allure generate allure-results --clean -o allure-report
+      # Upload raw mobile Allure results so the final report job can merge
+      # them with the web suite results into ONE combined report.
 
-      - name: 📝 Add README to Allure Report
-        if: always()
-        run: |
-          mkdir -p allure-report
-          cat > allure-report/README.txt <<'EOF'
-          How to view this Allure report:
-          1. Unzip this artifact.
-          2. Open a terminal inside the unzipped folder.
-          3. Run ONE of:
-               npx http-server .
-               npx allure open .
-          4. Open the URL printed in the terminal.
-          DO NOT open index.html directly (double-click), it will appear blank.
-          EOF
-
-      - name: 📤 Upload Allure Report
+      - name: 📤 Upload Mobile Allure Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: allure-report-${{ github.run_id }}
-          path: allure-report
+          name: allure-results-mobile-${{ github.run_id }}
+          path: allure-results/
           if-no-files-found: warn
 
       - name: 📤 Upload Screenshots
@@ -119,4 +108,117 @@ jobs:
             diagnostics/
             allure-results/
           retention-days: 7
+          if-no-files-found: warn
+
+  web-tests:
+    # Playwright web suite — no emulator needed. Produces its own Allure
+    # results artifact that gets merged with the mobile one in the report job.
+    if: ${{ inputs.run_web != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🧱 Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 📦 Install Dependencies
+        run: npm install
+
+      - name: 🌐 Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: 🧪 Run Web Tests (Playwright)
+        run: npm run test:web
+
+      - name: 🔍 Check results
+        if: always()
+        run: |
+          ls -la allure-results | head -20 || true
+
+      - name: 📤 Upload Web Allure Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-web-${{ github.run_id }}
+          path: allure-results/
+          if-no-files-found: warn
+
+  generate-report:
+    # One combined report: merges mobile (WDIO/Appium) + web (Playwright)
+    # Allure results into a single allure-results folder, then generates once.
+    needs: [e2e-tests, web-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🧱 Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: ⚙️ Install Allure CLI
+        run: npm install --no-save allure-commandline@2.46.1
+
+      - name: ⬇️ Download Mobile Allure Results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: allure-results-mobile-${{ github.run_id }}
+          path: allure-results
+
+      - name: ⬇️ Download Web Allure Results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: allure-results-web-${{ github.run_id }}
+          path: allure-results
+
+      - name: 🔍 Check merged results
+        if: always()
+        run: |
+          ls -la allure-results | head -30
+          echo "--- mobile count ---"; ls allure-results/*-result.json | wc -l || true
+
+      # Guarantee the report is honest even when the mobile session itself
+      # failed (e.g. emulator never booted → zero mobile results written).
+      - name: 🚨 Mobile-results watchdog
+        if: always()
+        run: node scripts/allure-fallback.js
+
+      - name: ⚙️ Generate Combined Allure Report
+        if: always()
+        run: npx allure generate allure-results --clean -o allure-report
+
+      - name: 📝 Add README to Allure Report
+        if: always()
+        run: |
+          mkdir -p allure-report
+          cat > allure-report/README.txt <<'EOF'
+          How to view this Allure report:
+          1. Unzip this artifact.
+          2. Open a terminal inside the unzipped folder.
+          3. Run ONE of:
+               npx http-server .
+               npx allure open .
+          4. Open the URL printed in the terminal.
+          DO NOT open index.html directly (double-click), it will appear blank.
+          This report contains BOTH the mobile (WDIO/Appium) and web
+          (Playwright) suites when web tests were enabled for this run.
+          EOF
+
+      - name: 📤 Upload Combined Allure Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report-${{ github.run_id }}
+          path: allure-report
           if-no-files-found: warn
