@@ -10,8 +10,7 @@ const {
 // Scenario: vendor opens Magic Codes; entry point and page are healthy.
 test.describe('Vendor Portal — Magic Codes', () => {
   test('magic codes page renders with its create entry point', async ({ page }) => {
-    const creds = validCredentials();
-    test.skip(!creds, 'PORTAL_USERNAME / PORTAL_PASSWORD not set in .env');
+    const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Dashboard');

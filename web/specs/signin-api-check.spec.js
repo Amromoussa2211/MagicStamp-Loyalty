@@ -15,8 +15,7 @@ const {
 //   3. the password is NEVER transmitted in a URL (query string leak).
 test.describe('Vendor Portal — Sign-in network health', () => {
   test('sign-in traffic is healthy and the password never leaks into URLs', async ({ page }) => {
-    const creds = validCredentials();
-    test.skip(!creds, 'PORTAL_USERNAME / PORTAL_PASSWORD not set in .env');
+    const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Sign-in');

@@ -11,8 +11,7 @@ const {
 // (token persisted) rather than bouncing back to /signin. Needs credentials.
 test.describe('Vendor Portal — Session persistence', () => {
   test('session survives a full page reload', async ({ page }) => {
-    const creds = validCredentials();
-    test.skip(!creds, 'PORTAL_USERNAME / PORTAL_PASSWORD not set in .env');
+    const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Sign-in');

@@ -18,8 +18,7 @@ const LOAD_BUDGET_MS = 10000; // no page should take longer to load
 
 test.describe('Vendor Portal — Performance (API latency & bottleneck)', () => {
   test('dashboard pages meet latency budgets and expose the slowest endpoints', async ({ page }) => {
-    const creds = validCredentials();
-    test.skip(!creds, 'PORTAL_USERNAME / PORTAL_PASSWORD not set in .env');
+    const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Performance');

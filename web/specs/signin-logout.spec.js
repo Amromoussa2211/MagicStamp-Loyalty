@@ -12,8 +12,7 @@ const {
 // and skip when no control is found (rather than failing).
 test.describe('Vendor Portal — Sign out', () => {
   test('signing out returns the browser to the sign-in page', async ({ page }) => {
-    const creds = validCredentials();
-    test.skip(!creds, 'PORTAL_USERNAME / PORTAL_PASSWORD not set in .env');
+    const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Sign-in');

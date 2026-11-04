@@ -16,7 +16,7 @@ test.describe('Vendor Portal — Add Stamp Card', () => {
   test.setTimeout(300000);
 
   test('authenticated user reaches the stamp-card page', async ({ page }) => {
-    const creds = validCredentials();
+    const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Stamp Card');
@@ -35,7 +35,7 @@ test.describe('Vendor Portal — Add Stamp Card', () => {
   });
 
   test('vendor can create a new stamp card', async ({ page }) => {
-    const creds = validCredentials();
+    const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Stamp Card');

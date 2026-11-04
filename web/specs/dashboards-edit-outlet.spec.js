@@ -16,8 +16,7 @@ test.describe('Vendor Portal — Outlets CRUD', () => {
   const RENAMED = `${OUTLET}-v2`;
 
   test('vendor can create, edit and delete an outlet', async ({ page }) => {
-    const creds = validCredentials();
-    test.skip(!creds, 'PORTAL_USERNAME / PORTAL_PASSWORD not set in .env');
+    const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Dashboard');

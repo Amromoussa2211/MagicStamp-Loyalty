@@ -13,8 +13,7 @@ const {
 // saving — so live business data is never mutated.
 test.describe('Vendor Portal — Settings Business profile', () => {
   test('business profile edit mode opens and closes without saving', async ({ page }) => {
-    const creds = validCredentials();
-    test.skip(!creds, 'PORTAL_USERNAME / PORTAL_PASSWORD not set in .env');
+    const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Dashboard');

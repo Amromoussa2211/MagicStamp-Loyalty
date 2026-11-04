@@ -10,8 +10,7 @@ const {
 // Scenario: vendor opens Campaigns; page renders and its entry card/CTA works.
 test.describe('Vendor Portal — Dashboard Campaigns', () => {
   test('campaigns page renders and its create entry point is reachable', async ({ page }) => {
-    const creds = validCredentials();
-    test.skip(!creds, 'PORTAL_USERNAME / PORTAL_PASSWORD not set in .env');
+    const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Dashboard');
