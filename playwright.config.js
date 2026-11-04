@@ -32,9 +32,9 @@ module.exports = defineConfig({
   use: {
     channel,
     headless: true,
-    screenshot: 'only-on-failure',
+    screenshot: 'on',
     trace: 'retain-on-failure',
-    baseURL: 'https://www.google.com',
+    baseURL: 'https://vendor-portal-sa.parktechnology.com/',
   },
 
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],

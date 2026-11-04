@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('../fixtures/web');
 const { allure } = require('allure-playwright');
 
 // Web smoke test #1: navigate to Google and verify the page loads.

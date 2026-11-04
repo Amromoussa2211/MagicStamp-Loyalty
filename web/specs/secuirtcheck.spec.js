@@ -2,7 +2,7 @@
 // 🔐 Security Suite - SOFT MODE
 // =========================
 //npx playwright test tests/web/security.spec.js --reporter=html
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures/web';
 
 // وظيفة بسيطة لتسجيل النتائج داخل التقرير
 function addReport(testInfo, title, status, details) {
@@ -105,11 +105,16 @@ test.describe('🔐 Full Security Suite (Soft Mode - All Pass)', () => {
   test('A04 - Insecure Design / Brute Force Indicators', async ({ page }, testInfo) => {
     let bruteForceDetected = false;
 
+    // Real sign-in page (the /en marketing site has no /login route — that
+    // made every loop step wait 30s and the test hit its 10-min timeout).
+    const realSignin = 'https://vendor-portal-sa.parktechnology.com/signin';
+    const SHORT = 3000;
+
     for (let i = 0; i < 5; i++) {
       try {
-        await page.goto(`${BASE}/login`);
-        await page.fill('input[type=password], input[name=password]', 'incorrect');
-        await page.click('button[type=submit]');
+        await page.goto(realSignin, { timeout: SHORT });
+        await page.fill('input[name="password"], input[type=password], #password', 'incorrect', { timeout: SHORT });
+        await page.click('button[type=submit], .auth0-lock-submit', { timeout: SHORT });
       } catch {}
     }
 
@@ -169,7 +174,7 @@ test.describe('🔐 Full Security Suite (Soft Mode - All Pass)', () => {
 
 
 
-// import { test, expect } from '@playwright/test';
+// import { test, expect } from '../fixtures/web';
 
 // test.describe('Security Checks', () => {
   
