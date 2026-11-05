@@ -26,7 +26,7 @@ test.describe('Vendor Portal — Magic Codes', () => {
       await page.goto(`${PORTAL_BASE_URL}/magic-codes`, { waitUntil: 'domcontentloaded' });
       await expect(page).toHaveURL(/magic-codes/);
       await expect(page.getByRole('heading', { name: /magic code/i })).toBeVisible();
-      await expect(page.getByRole('button', { name: /create magic codes/i })).toBeVisible();
+      await expect(page.getByRole('button', { name: /create magic codes?/i })).toBeVisible();
     });
   });
 });
