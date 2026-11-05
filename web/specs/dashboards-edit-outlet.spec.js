@@ -37,9 +37,13 @@ test.describe('Vendor Portal — Outlets CRUD', () => {
         const del = page.getByRole('button', { name: 'Delete' }).first();
         if (!(await del.isVisible().catch(() => false))) break;
         await del.click();
-        const confirm = page.getByRole('button', { name: /delete|confirm|yes/i }).last();
-        if (await confirm.isVisible().catch(() => false)) await confirm.click();
-        await page.waitForTimeout(2000);
+        // The Confirm Delete dialog mounts asynchronously after the click —
+        // WAIT for its confirm button (bounded) instead of an instant check.
+        const dialog = page.getByRole('dialog', { name: /confirm delete/i });
+        const dialogDelete = dialog.getByRole('button', { name: 'Delete', exact: true });
+        await expect(dialogDelete).toBeVisible({ timeout: 10000 });
+        await dialogDelete.click();
+        await expect(dialog).not.toBeVisible({ timeout: 10000 });
         await page.getByPlaceholder('Search outlets by name or address').fill('auto-outlet-');
       }
     });
@@ -74,18 +78,16 @@ test.describe('Vendor Portal — Outlets CRUD', () => {
     await allure.step('Delete the outlet (self-cleanup)', async () => {
       await page.getByPlaceholder('Search outlets by name or address').fill(RENAMED);
       await page.getByRole('button', { name: 'Delete' }).first().click();
-      // "Confirm Delete" dialog — target it by its dialog role, otherwise the
-      // click can land on the row's Delete button behind the overlay.
-      const dialogDelete = page
-        .getByRole('dialog', { name: /confirm delete/i })
-        .getByRole('button', { name: 'Delete', exact: true });
-      if (!(await dialogDelete.isVisible().catch(() => false))) {
-        // Fallback: the last visible exact "Delete" button on screen (dialog
-        // markup is appended last to the DOM).
-        await page.getByRole('button', { name: 'Delete', exact: true }).last().click();
-      } else {
-        await dialogDelete.click();
-      }
+      // "Confirm Delete" dialog — AntD mounts it asynchronously after the
+      // click, so WAIT for its confirm button instead of an instant
+      // isVisible() check. That race broke CI: the check ran before the
+      // dialog existed, the fallback clicked a row button behind the modal
+      // overlay and hung for the rest of the timeout.
+      const dialog = page.getByRole('dialog', { name: /confirm delete/i });
+      const dialogDelete = dialog.getByRole('button', { name: 'Delete', exact: true });
+      await expect(dialogDelete).toBeVisible({ timeout: 15000 });
+      await dialogDelete.click();
+      await expect(dialog).not.toBeVisible({ timeout: 10000 });
       await expect(page.getByText(RENAMED).first()).not.toBeVisible({ timeout: 15000 });
     });
   });
