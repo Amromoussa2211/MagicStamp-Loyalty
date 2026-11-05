@@ -2,6 +2,11 @@ describe('Magic Stamp - Sidebar Options Smoke Test', () => {
     it('should navigate through sidebar options, send gift, and logout', async () => {
         
         // ==========================================
+        // 0. Onboarding + login (or reuse the persisted session)
+        // ==========================================
+        await require('../../helpers/mobileSession').ensureLoggedIn();
+
+        // ==========================================
         // 1. Wait for Home Screen to load
         // ==========================================
         // 1. Wait for Home Screen to load

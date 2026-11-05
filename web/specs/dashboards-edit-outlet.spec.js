@@ -55,7 +55,28 @@ test.describe('Vendor Portal — Outlets CRUD', () => {
       await page.getByPlaceholder('Street name').fill('Automation Street');
       await page.getByPlaceholder('City / town').fill('Cairo');
       await page.getByPlaceholder('Postal code').fill('12345');
+      // Capture the create-POST so a silent failure reports its evidence
+      // instead of a mystery "Back to Outlets" timeout.
+      const createPost = page.waitForResponse(
+        (r) => /\/outlets/.test(r.url()) && r.request().method() === 'POST',
+        { timeout: 30000 }
+      ).catch(() => null);
       await page.getByRole('button', { name: /create outlet/i }).click();
+
+      const post = await createPost;
+      if (!post) {
+        throw new Error(
+          'Create outlet: clicking "Create outlet" never triggered a POST request ' +
+          '(form blocked client-side — check validation or a stuck overlay).'
+        );
+      }
+      if (!post.ok()) {
+        const body = await post.text().catch(() => '');
+        throw new Error(
+          `Create outlet POST failed: HTTP ${post.status()} ${post.url()} — body: ${body.slice(0, 300)}`
+        );
+      }
+
       // Success modal: "Outlet Added Successfully" → return to the list.
       await page.getByRole('button', { name: 'Back to Outlets' }).click({ timeout: 30000 });
       await page.getByPlaceholder('Search outlets by name or address').fill(OUTLET);

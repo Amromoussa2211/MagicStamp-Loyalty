@@ -85,11 +85,24 @@ async function safeClick(selector, { timeout = 10000, retries = 3 } = {}) {
 // Phase 2 (fallback): 4 fingers held + tapping 5
 // ============================================================
 async function makeStamp({ isRegistered, fiveFingerHoldMs = 30000, fallbackRounds = 5 } = {}) {
+  // The numbered markers (1..5) only exist while the finger-guide overlay
+  // is toggled on. If marker 1 is missing, tap the top-bar eye icon.
+  const stampSel = (n) => `android=new UiSelector().text("${n}")`;
+  if (!(await isDisplayedSafe(stampSel('1'), 3000))) {
+    const guideBtn = await $('~Show finger guide');
+    if (await guideBtn.isDisplayed().catch(() => false)) {
+      console.log('👁️ Finger overlay off — tapping "Show finger guide"');
+      await guideBtn.click().catch(() => {});
+      await driver.pause(1500);
+    }
+  }
+
   for (const label of ['1', '2', '3', '4']) {
-    const el = await $(`android=new UiSelector().text("${label}")`);
+    const el = await $(`${stampSel(label)}`);
     await el.waitForDisplayed({ timeout: 10000 });
   }
 
+  // Working pattern coordinates (verified against the 10-stamp card layout)
   const points = [
     { x: 245, y: 690 },
     { x: 476, y: 690 },
@@ -98,7 +111,7 @@ async function makeStamp({ isRegistered, fiveFingerHoldMs = 30000, fallbackRound
   ];
   let p5 = { x: 360, y: 939 };
   try {
-    const el5 = await $('android=new UiSelector().text("5")');
+    const el5 = await $(stampSel('5'));
     if (await el5.isDisplayed().catch(() => false)) p5 = await getCenter(el5);
   } catch {}
   console.log(`📍 Finger 5 at (${p5.x}, ${p5.y})`);
@@ -237,7 +250,11 @@ async function removeAllAddedCards() {
   await ensureSheetOpen();
 
   let removed = 0;
-  const seen = new Set();
+  // Rows may legally repeat (same card name in different locations, e.g.
+  // "1863" ×3) → same content-desc. Track *consecutive* repeats instead of
+  // banning any repeat, and only bail when the same button survives clicks.
+  let lastDesc = null;
+  let sameStreak = 0;
 
   while (true) {
     const btn = await $(REMOVE_BTN);
@@ -247,11 +264,16 @@ async function removeAllAddedCards() {
     const desc = await btn.getAttribute('content-desc').catch(() => '');
     if (!desc) break;
 
-    if (seen.has(desc)) {
-      console.warn(`⚠️ Same Remove button still visible: "${desc}" — stopping to avoid loop`);
-      break;
+    if (desc === lastDesc) {
+      sameStreak++;
+      if (sameStreak >= 3) {
+        console.warn(`⚠️ "${desc}" still visible after 3 clicks — stopping to avoid loop`);
+        break;
+      }
+    } else {
+      sameStreak = 0;
+      lastDesc = desc;
     }
-    seen.add(desc);
 
     console.log(`🗑️ Removing: ${desc}`);
     try {
@@ -306,10 +328,30 @@ async function addCard(name) {
   }
 }
 
+// Navigate back to the Home tab from any depth (card screen, sheets,
+// Stamp cards screen — none of them show the bottom tab bar).
+async function goHomeFromAnywhere() {
+  const homeTab = await $('~Home tab');
+  for (let i = 0; i < 4 && !(await homeTab.isDisplayed().catch(() => false)); i++) {
+    await driver.back();
+  }
+  await homeTab.waitForDisplayed({ timeout: 10000 });
+  await homeTab.click();
+  const addNewCard = await $(ADD_NEW_CARD);
+  await addNewCard.waitForDisplayed({ timeout: 10000 });
+}
+
 // ============================================================
 // Tests
 // ============================================================
+const { ensureLoggedIn } = require('../../helpers/mobileSession');
+
 describe('Magic Stamp - Navigation & Filtering', () => {
+  // Login once (or reuse the persisted session) before any navigation test.
+  before(async () => {
+    await ensureLoggedIn();
+  });
+
   it('should navigate to Stamp Cards, open Filter, and select A-Z', async () => {
     const stampCardsTab = await $('~Stamp Cards tab');
     await stampCardsTab.waitForDisplayed({ timeout: 10000 });
@@ -331,6 +373,10 @@ describe('Magic Stamp - Navigation & Filtering', () => {
   });
 
   it('should navigate close place from selected location', async () => {
+    // 0. الرجوع للـ Home أولاً — التست اللي قبله بيترك التطبيق على شاشة
+    // Stamp Cards (مفيش فيها تابات سفلية) — نرجع بالـ Back لحد ما الهوم يظهر.
+    await goHomeFromAnywhere();
+
     // 1. افتح الشيت وشيل كل الكاردات المضافة
     await openAddCardSheet();
     await removeAllAddedCards();
@@ -351,6 +397,7 @@ describe('Magic Stamp - Navigation & Filtering', () => {
     await goBackToCards();
 
     // 5. افتح الشيت وضيف التاني (اللي هنعمل عليه الاستامبات)
+    await goHomeFromAnywhere();
     await openAddCardSheet();
     await addCard(names[1]);
     await driver.pause(1500);

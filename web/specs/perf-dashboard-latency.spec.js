@@ -20,6 +20,10 @@ test.describe('Vendor Portal — Performance (API latency & bottleneck)', () => 
   test('dashboard pages meet latency budgets and expose the slowest endpoints', async ({ page }) => {
     const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
+    // 6 pages measured with networkidle — a single slow page must not eat the
+    // 60s default test budget (that hard kill corrupted the next test's trace).
+    test.setTimeout(300000);
+
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Performance');
     allure.label('suite', 'Performance — Dashboard');
@@ -74,7 +78,12 @@ test.describe('Vendor Portal — Performance (API latency & bottleneck)', () => 
     for (const p of PAGES) {
       await allure.step(`Load /${p} (timed)`, async () => {
         await page.goto(`${PORTAL_BASE_URL}/${p}`, { waitUntil: 'networkidle', timeout: 60000 })
-          .catch(() => page.waitForTimeout(2000)); // fallback if networkidle never settles
+          .catch(async () => {
+            // networkidle may never settle on slow/long-polling pages — fall
+            // back to domcontentloaded so the measurement still has a valid
+            // navigation entry (no arbitrary sleep, no hard page teardown).
+            await page.goto(`${PORTAL_BASE_URL}/${p}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          });
 
         const nav = await page.evaluate(() => {
           const n = performance.getEntriesByType('navigation')[0];

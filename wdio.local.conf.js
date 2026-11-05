@@ -122,9 +122,6 @@ exports.config = {
                 }
             );
             console.log('✅ App is responsive, ready for test');
-
-            // ✅ استقرار إضافي للـ UI
-            await driver.pause(1500);
         } catch (err) {
             console.warn('⚠️ Could not activate app:', err.message);
         }
@@ -157,20 +154,14 @@ exports.config = {
             console.error(`❌ Failed to fetch logcat: ${err.message}`);
         }
 
-        // ✅ اقفل التطبيق بعد كل test (عشان كل test يبدأ من حالة نظيفة)
-        // ملاحظة: beforeTest هيفتحه تاني
-        try {
-            console.log('🧹 Terminating app after test...');
-            await driver.terminateApp('com.parktechnology.purse.dev');
-            console.log('✅ App terminated successfully');
-        } catch (err) {
-            console.warn('⚠️ Could not terminate app:', err.message);
-        }
+        // App is NOT terminated between tests: with 'appium:noReset: true' the
+        // login session persists anyway, and the rapid terminate→relaunch churn
+        // triggered the ColorOS "UiAutomation not connected" instrumentation
+        // crash between sessions. beforeTest re-activates the app instead.
+        console.log('🧹 App left running for the next test (state preserved)');
 
         // ❌ مش بنقفل UiAutomator2 — الـ session محتاجاه
         // (الـ force-stop للحزمتين معمول في onPrepare بس)
-
-        await driver.pause(1500);
     },
 
     onComplete: async function () {
