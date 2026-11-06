@@ -6,6 +6,8 @@ const {
   performPortalLogin,
   waitForAuthenticatedPage,
 } = require('../helpers/vendorSignin');
+const { UPLOAD_IMAGE } = require('../helpers/uploadAsset');
+const { pickAntDate, selectFirstAntOption } = require('../helpers/antdPicker');
 
 // Scenario: vendor opens Campaigns; page renders and its entry card/CTA works.
 test.describe('Vendor Portal — Dashboard Campaigns', () => {
@@ -37,6 +39,39 @@ test.describe('Vendor Portal — Dashboard Campaigns', () => {
         // Any navigation or modal counts as a working entry point.
         await page.waitForTimeout(2000);
         await expect(page.locator('h1, h2, [role="dialog"]').first()).toBeVisible();
+        await page.getByRole('link', { name: 'Create Your First Campaign' }).click();
+
+        await page.getByRole('combobox', { name: 'Select Reward' }).click();
+        // First rendered reward option — reward names change over time.
+        await selectFirstAntOption(page);
+        await page.getByRole('combobox', { name: 'Time Zone' }).click();
+        await page.getByText('Abidjan (GMT+0)').click();
+
+        // Dates are dynamic and MUST be in the future (the app disables OK
+        // for past datetimes): Start = tomorrow 10:00, End = tomorrow + 7 —
+        // valid regardless of the day/hour a run happens on.
+        const start = new Date();
+        start.setDate(start.getDate() + 1);
+        const end = new Date();
+        end.setDate(end.getDate() + 8);
+        await pickAntDate(page, 'Start Date & Time', start);
+        await pickAntDate(page, 'End Date & Time', end);
+
+        await page.getByRole('button', { name: 'Next: Audience' }).click();
+        await page.getByRole('textbox', { name: 'Campaign Name' }).click();
+        await page.getByRole('textbox', { name: 'Campaign Name' }).fill('automated campain');
+        await page.getByRole('button', { name: 'Next: Audience' }).click();
+
+        await page.getByRole('button', { name: 'Next: Content' }).click();
+        await page.getByRole('textbox', { name: 'Voucher Name' }).click();
+        await page.getByRole('textbox', { name: 'Voucher Name' }).fill('get1for1');
+        await page.getByRole('textbox', { name: 'Voucher Description' }).click();
+        await page.getByRole('textbox', { name: 'Voucher Description' }).fill('vocher description');
+      //  const upladfile = await page.getByRole('button', { name: 'Drag & Drop Image Supports' }).click();
+        await page.locator('input[name="file"]').setInputFiles(UPLOAD_IMAGE);
+        await page.getByRole('button', { name: 'Next: Review' }).click();
+        await page.getByRole('button', { name: 'Publish', exact: true }).click();
+        await page.getByRole('button', { name: 'Publish', exact: true }).click();
       }
     });
   });

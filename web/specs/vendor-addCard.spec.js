@@ -15,8 +15,8 @@ test.describe('Vendor Portal — Add Stamp Card', () => {
 
   test('authenticated user reaches the stamp-card page', async ({ page }) => {
     const creds = validCredentials() || {
-      email: process.env.VENDOR_EMAIL,
-      password: process.env.VENDOR_PASSWORD,
+      email: "amro_kaza@hotmail.com",
+      password: "P@$$w0rd2010",
     };
 
     allure.label('layer', 'web');

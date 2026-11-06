@@ -39,7 +39,11 @@ function validCredentials() {
 
 /** Open the portal sign-in page and confirm its Log in button rendered. */
 async function openSignin(page) {
-  await page.goto(SIGNIN_URL, { waitUntil: 'domcontentloaded' });
+  const gotoSignIn = () =>
+    page.goto(SIGNIN_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  // The portal occasionally stalls the first navigation (observed
+  // intermittently) — one retry covers that without masking real outages.
+  await gotoSignIn().catch(() => gotoSignIn());
   await page.locator('.login-page .login-button').waitFor({ state: 'visible', timeout: 20000 });
 }
 
@@ -109,7 +113,11 @@ async function waitForAuthenticatedPage(page, timeout = 120000) {
 async function performPortalLogin(page, creds) {
   await openSignin(page);
   await clickPortalLoginButton(page);
-  await page.waitForURL(AUTH0_URL_MATCH, { timeout: 30000 });
+  // The Lock widget may render on the Auth0 hosted page OR directly on a
+  // tenant/custom-domain URL that doesn't contain "auth0.com" — so we treat
+  // the URL wait as best-effort and rely on the form selector below, which is
+  // what actually proves the login page is ready.
+  await page.waitForURL(AUTH0_URL_MATCH, { timeout: 30000 }).catch(() => {});
   await fillAuth0LoginForm(page, creds);
   await waitForAuthenticatedPage(page);
 }

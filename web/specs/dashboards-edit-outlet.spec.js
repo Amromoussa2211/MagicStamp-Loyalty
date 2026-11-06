@@ -18,6 +18,10 @@ test.describe('Vendor Portal — Outlets CRUD', () => {
   test('vendor can create, edit and delete an outlet', async ({ page }) => {
     const creds = validCredentials() || { email: "amro_kaza@hotmail.com", password: "P@$$w0rd2010" };
 
+    // Auto-"Allow" the browser's location prompt for this spec only — the
+    // outlet form uses geolocation and otherwise hangs on the permission popup.
+    await page.context().grantPermissions(['geolocation'], { origin: PORTAL_BASE_URL });
+
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Dashboard');
     allure.label('suite', 'Dashboard — Outlets');
