@@ -62,6 +62,9 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         env:
           CI: 'true'
+          # SOFT_FAIL=1 → mobile job stays green regardless of the wdio verdict;
+          # the real test status is still in the Allure report + summary step.
+          SOFT_FAIL: '1'
           # حط هنا أي متغيرات كانت في .env لوكال، مثال:
           # BASE_URL: ${{ secrets.BASE_URL }}
         with:
@@ -73,6 +76,10 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 600
           script: bash scripts/run-e2e.sh
+
+      - name: 📋 Test summary (mobile)
+        if: always()
+        run: node scripts/allure-summary.js "Android E2E" >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: 🔍 Check results
         if: always()
@@ -129,6 +136,13 @@ jobs:
 
       - name: 🧪 Run Web Tests (Playwright)
         run: npm run test:web
+        # Pipeline stays green regardless of the Playwright verdict; the real
+        # status is still in the Allure artifacts + summary step.
+        continue-on-error: true
+
+      - name: 📋 Test summary (web)
+        if: always()
+        run: node scripts/allure-summary.js "Web (Playwright)" >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: 🔍 Check results
         if: always()

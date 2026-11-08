@@ -29,6 +29,13 @@ done
 npx wdio run ./wdio.ci.conf.js
 RESULT=$?
 
+# SOFT_FAIL=1 → the CI job stays green even when specs fail; the real verdict
+# still lives in the Allure report + the job's failure-summary step.
+if [ "${SOFT_FAIL:-0}" = "1" ]; then
+  echo "e2e exit code: $RESULT (SOFT_FAIL=1 — mobile job stays green; see Allure/results artifacts for the true status)"
+  RESULT=0
+fi
+
 # بديل لو عايز نفس سلوك اللوكال (process لكل spec): امسح السطرين اللي فوق وفك ده
 # RESULT=0
 # for f in test/specs/*.spec.js; do

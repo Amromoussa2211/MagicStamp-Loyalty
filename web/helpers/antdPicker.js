@@ -49,7 +49,7 @@ async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } =
       .locator('.ant-picker-time-panel-cell-inner', { hasText: new RegExp(`^${hour}$`) })
       .first().click();
     await timeColumns.nth(1)
-      .locator('.ant-picker-time-panel-cell-inner', { hasText: new RegExp(`^${minute}$`) })
+      .locator('.ant-picker-time-panel-cell-inner', { hasText: new RegExp(`^0*${minute}$`) })
       .first().click();
     committed = `${d}/${m}/${y} ${hh}:${mm}`;
   } else {
@@ -68,8 +68,11 @@ async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } =
     await ok.click();
   }
 
-  // Commit proof: input holds the picked value.
-  await expect(input).toHaveValue(committed, { timeout: 10000 });
+  // Commit proof: input holds the picked value. Formats differ per picker
+  // ("DD/MM/YYYY HH:mm" here, "DD MMM YYYY" for date-only ones, and raw ISO
+  // "YYYY-MM-DD HH:mm:ss" in newer forms like the boost wizard).
+  const iso = `${y}-${m}-${d} ${hh}:${mm}`;
+  await expect(input).toHaveValue(new RegExp(`^(${committed.replace(/[/.]/g, '.')}|${iso})`), { timeout: 10000 });
 }
 
 /** Select the FIRST rendered option of an open antd Select dropdown. */
