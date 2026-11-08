@@ -202,6 +202,10 @@ jobs:
         if: always()
         run: node scripts/allure-fallback.js
 
+      - name: ✂️ Trim traces from report copy (raw artifacts keep everything)
+        if: always()
+        run: node scripts/trim-report-inputs.js allure-results
+
       - name: ⚙️ Generate Combined Allure Report (single file)
         if: always()
         run: npx allure generate allure-results --clean -o allure-report --single-file
