@@ -18,7 +18,10 @@ const channel = process.env.PLAYWRIGHT_BROWSER || (hasSystemChrome ? 'chrome' : 
 
 module.exports = defineConfig({
   testDir: './web/specs',
-  timeout: 60_000,
+  // 120s — Auth0 login alone takes ~44s on 2-core CI runners, so login-heavy
+  // specs (addCard, gamification boosts, magic-codes batch) exceeded 60s there
+  // while passing locally. Local runs unaffected (they finish far below).
+  timeout: 120_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,

@@ -186,13 +186,23 @@ test.describe('Vendor Portal — Magic Codes', () => {
     await page.goto(`${PORTAL_BASE_URL}/magic-codes`, { waitUntil: 'domcontentloaded' });
 
     await allure.step('Cycle status filters', async () => {
-      // Toggle handles each status in turn.
-      await page.locator('span').filter({ hasText: 'Status' }).nth(1).click();
-      await page.getByText('Active', { exact: true }).click();
-      await page.locator('#root').getByText('Active', { exact: true }).click();
-      await page.getByText('Claimed').click();
-      await page.locator('#root').getByText('Claimed', { exact: true }).click();
-      await page.getByText('Expired').click();
+      // The status select is the FIRST .mc-filter-select (second is Sort).
+      // Its options live in the antd dropdown, so click options ONLY inside
+      // the open dropdown — the page also renders `Active`/`Claimed` status
+      // pills in the batch list, which made unscoped getByText('Active')
+      // a strict-mode violation once the list had >1 batch (CI + local).
+      const statusSelect = page.locator('.mc-filter-select').first();
+      const pickStatus = async (status) => {
+        await statusSelect.click(); // open listbox
+        await page
+          .locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')
+          .filter({ hasText: new RegExp(`^${status}$`) })
+          .first()
+          .click();
+      };
+      await pickStatus('Active');
+      await pickStatus('Claimed');
+      await pickStatus('Expired');
     });
   });
 });

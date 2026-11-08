@@ -84,6 +84,11 @@ async function selectFirstAntOption(page) {
   // The virtual list can re-render while clicking, which never satisfies the
   // default actionability check — force the click, then PROVE the selection
   // by waiting for the dropdown to close (selection always closes it).
+  // On CI (bundled Linux Chromium + different fonts/scrollbars) the resolved
+  // option can sit outside the viewport → force click alone still fails
+  // ("Element is outside of the viewport", run 42468451637). Scroll it in
+  // first; virtual-list re-layouts may race, so tolerate a failed scroll.
+  await option.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
   await option.click({ force: true, timeout: 10000 });
   await expect(dd).toBeHidden({ timeout: 10000 });
 }

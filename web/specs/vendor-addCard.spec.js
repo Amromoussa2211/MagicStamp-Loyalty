@@ -40,8 +40,10 @@ test.describe('Vendor Portal — Add Stamp Card', () => {
 
   test('vendor can create a new stamp card', async ({ page }) => {
     const creds = validCredentials() || {
-      email: process.env.VENDOR_EMAIL,
-      password: process.env.VENDOR_PASSWORD,
+      // Inline fallback (same as other specs) — CI has no .env, so env-only
+      // fallback would resolve fill() to undefined there (run 42468451637 bug).
+      email: 'amro_kaza@hotmail.com',
+      password: 'P@$$w0rd2010',
     };
 
     // Generate unique test data for every execution.

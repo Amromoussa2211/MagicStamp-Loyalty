@@ -30,7 +30,19 @@ test.describe('Vendor Portal — Gamification Points', () => {
       await expect(page).toHaveURL(/gamification/);
     });
 
-    const configured = await page.locator('text=Points economy overview').first().isVisible().catch(() => false);
+    // Race-free state detection: the landing renders either the onboarding
+    // cards ("Get started") or the configured overview — wait for the FIRST
+    // of the two, THEN branch. Branching on a raw isVisible() raced with
+    // slow "Signing you in…" loads and mismatched the release state.
+    await page
+      .getByText(/points economy overview|get started/i)
+      .first()
+      .waitFor({ state: 'visible', timeout: 30000 });
+    const configured = await page
+      .getByText(/points economy overview/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
     if (configured) {
       await allure.step('Configured state — overview markers are visible', async () => {
         await expect(page.getByText(/points per stamp/i).first()).toBeVisible();

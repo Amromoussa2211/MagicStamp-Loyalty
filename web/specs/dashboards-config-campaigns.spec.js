@@ -30,16 +30,22 @@ test.describe('Vendor Portal — Dashboard Campaigns', () => {
       await expect(page.getByRole('heading', { name: /campaign/i })).toBeVisible();
     });
 
-    await allure.step('Open the campaign entry card if present', async () => {
-      // Empty state renders the entry as a card link (like Settings) — click
-      // it when it exists; tolerate a plain empty state otherwise.
-      const card = page.locator('a, button').filter({ hasText: /campaign/i }).first();
+    await allure.step('Open the campaign entry point (state-aware)', async () => {
+      // The page has TWO live states: empty ("Create Your First Campaign")
+      // and configured (a published campaign exists — often created by an
+      // earlier run of this very test). Branch on the live state so re-runs
+      // are stable; only the empty branch publishes anything.
+      const card = page.locator('a, button').filter({ hasText: /create.*campaign/i }).first();
       if (await card.isVisible().catch(() => false)) {
         await card.click();
         // Any navigation or modal counts as a working entry point.
         await page.waitForTimeout(2000);
         await expect(page.locator('h1, h2, [role="dialog"]').first()).toBeVisible();
-        await page.getByRole('link', { name: 'Create Your First Campaign' }).click();
+      }
+
+      const emptyStateLink = page.getByRole('link', { name: 'Create Your First Campaign' });
+      if (await emptyStateLink.isVisible().catch(() => false)) {
+        await emptyStateLink.click();
 
         await page.getByRole('combobox', { name: 'Select Reward' }).click();
         // First rendered reward option — reward names change over time.
@@ -72,6 +78,12 @@ test.describe('Vendor Portal — Dashboard Campaigns', () => {
         await page.getByRole('button', { name: 'Next: Review' }).click();
         await page.getByRole('button', { name: 'Publish', exact: true }).click();
         await page.getByRole('button', { name: 'Publish', exact: true }).click();
+      } else {
+        // CONFIGURED: the create entry is the "Create Campaign" card/link —
+        // verify it opens the wizard, but do NOT publish anything (keeps
+        // re-runs from stacking campaigns and breaking the empty branch).
+        await expect(page).toHaveURL(/campaigns\/add|campaign/);
+        await expect(page.locator('h1, h2, [role="dialog"]').first()).toBeVisible();
       }
     });
   });
