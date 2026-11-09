@@ -11,6 +11,20 @@
  */
 const { expect } = require('@playwright/test');
 
+// The antd picker panel re-renders continuously on CI (live "Now" display +
+// timezone recalculation), so its cells/buttons never pass Playwright's
+// element-STABILITY check — the default click retries forever and burns the
+// whole test budget (run 42666769696: "retrying click action" x15 → timeout).
+// Strategy: a short normal click first (keeps local runs honest), then a
+// FORCE click that skips actionability entirely and lands the DOM event.
+async function clickStable(locator, { normalTimeout = 5000, okTimeout = 15000 } = {}) {
+  try {
+    await locator.click({ timeout: normalTimeout });
+  } catch {
+    await locator.click({ force: true, timeout: okTimeout });
+  }
+}
+
 async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } = {}) {
   const y = dateObj.getFullYear();
   const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -20,7 +34,12 @@ async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } =
   const mm = String(minute).padStart(2, '0');
   const input = page.getByRole('textbox', { name: fieldName });
 
-  await input.click();
+  // Bound every action — an unbounded click inheriting the TEST timeout
+  // burned 240s on CI (run 42666769696) instead of failing fast.
+  await input.click({ timeout: 8000 }).catch(() => {
+    // Slow 2-core CI can see the form re-layout under the pointer; retry once.
+    return input.click({ force: true, timeout: 15000 });
+  });
   // Scope everything to the VISIBLE dropdown — hidden dropdowns of previous
   // picks stay in the DOM with identical grids inside.
   const dd = page.locator('.ant-picker-dropdown:not(.ant-picker-dropdown-hidden)').first();
@@ -30,7 +49,8 @@ async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } =
   const cell = dd.locator(`.ant-picker-cell[title="${title}"]`).first();
   for (let i = 0; i < 13; i++) {
     if (await cell.isVisible().catch(() => false)) break;
-    await dd.locator('.ant-picker-next-btn').first().click();
+    await dd.locator('.ant-picker-next-btn').first()
+      .click({ force: true, timeout: 5000 }).catch(() => {});
     await cell.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {});
   }
   if (!(await cell.isVisible().catch(() => false))) {
@@ -49,14 +69,14 @@ async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } =
   // calendar open, OK disabled, start field empty at test abort). Re-pick
   // once before giving up with a precise diagnosis.
   const pickOnce = async () => {
-    await cell.click();
+    await clickStable(cell);
     if (hasTime) {
-      await timeColumns.nth(0)
+      await clickStable(timeColumns.nth(0)
         .locator('.ant-picker-time-panel-cell-inner', { hasText: new RegExp(`^${hour}$`) })
-        .first().click();
-      await timeColumns.nth(1)
+        .first());
+      await clickStable(timeColumns.nth(1)
         .locator('.ant-picker-time-panel-cell-inner', { hasText: new RegExp(`^0*${minute}$`) })
-        .first().click();
+        .first());
     }
   };
   let committed;
@@ -79,7 +99,8 @@ async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } =
       enabled = await ok.isEnabled({ timeout: attempt === 1 ? 4000 : 10_000 }).catch(() => false);
       if (!enabled) {
         // Re-open the panel: a swallowed pick may have closed/reactivated it.
-        await input.click().catch(() => {});
+        await input.click({ timeout: 8000 }).catch(() =>
+          input.click({ force: true, timeout: 8000 }).catch(() => {}));
         await dd.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
       }
     }
@@ -89,7 +110,7 @@ async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } =
         `(picked ${committed}) — the app rejects this datetime (too old?) or the pick never registered.`
       );
     }
-    await ok.click();
+    await clickStable(ok, { okTimeout: 8000 });
   }
 
   // Commit proof: input holds the picked value. Formats differ per picker

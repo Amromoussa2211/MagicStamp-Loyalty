@@ -117,7 +117,7 @@ jobs:
   web-tests:
     if: ${{ inputs.run_web }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: 📥 Checkout Code
