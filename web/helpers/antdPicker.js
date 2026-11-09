@@ -56,7 +56,12 @@ async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } =
   if (!(await cell.isVisible().catch(() => false))) {
     throw new Error(`${fieldName}: date cell ${title} never appeared in the picker`);
   }
-  await cell.click();
+  // The cell click MUST go through the stability workaround — antd's panel
+  // re-renders continuously (live "Now" + timezone recalc), so a plain
+  // click never passes Playwright's stability check and retried forever on
+  // CI, burning the whole test budget (run 42677697271: locator resolved,
+  // click never landed). Local runs usually win the race; CI never does.
+  await clickStable(cell);
 
   // Time columns may not exist (pure date pickers have none).
   const timeColumns = dd.locator('.ant-picker-time-panel-column');
