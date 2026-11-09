@@ -94,6 +94,9 @@ test.describe('Vendor Portal — Gamification Points', () => {
   });
 
   test('create a boost with a unique title', async ({ page }) => {
+    // CI budget: login ~44s on a 2-core runner + 2 slow antd date picks —
+    // timed out at 120s on CI (run 42481009511) while passing locally.
+    test.setTimeout(240_000);
     allure.label('layer', 'web');
     allure.label('feature', 'Vendor Dashboard');
     allure.label('suite', 'Dashboard — Gamification Points');

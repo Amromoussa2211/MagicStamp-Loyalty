@@ -43,14 +43,24 @@ async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } =
   const hasTime = (await timeColumns.count()) > 0 && (
     await timeColumns.nth(0).isVisible().catch(() => false)
   );
+  // Pick the date (+time when present), then confirm only once OK is ENABLED.
+  // On 2-core CI the picker re-renders slowly and can swallow the first cell
+  // click — leaving OK permanently DISABLED (run 42481009511 boost failure:
+  // calendar open, OK disabled, start field empty at test abort). Re-pick
+  // once before giving up with a precise diagnosis.
+  const pickOnce = async () => {
+    await cell.click();
+    if (hasTime) {
+      await timeColumns.nth(0)
+        .locator('.ant-picker-time-panel-cell-inner', { hasText: new RegExp(`^${hour}$`) })
+        .first().click();
+      await timeColumns.nth(1)
+        .locator('.ant-picker-time-panel-cell-inner', { hasText: new RegExp(`^0*${minute}$`) })
+        .first().click();
+    }
+  };
   let committed;
   if (hasTime) {
-    await timeColumns.nth(0)
-      .locator('.ant-picker-time-panel-cell-inner', { hasText: new RegExp(`^${hour}$`) })
-      .first().click();
-    await timeColumns.nth(1)
-      .locator('.ant-picker-time-panel-cell-inner', { hasText: new RegExp(`^0*${minute}$`) })
-      .first().click();
     committed = `${d}/${m}/${y} ${hh}:${mm}`;
   } else {
     // Pure date pickers display "DD MMM YYYY" (e.g. 07 Nov 2026).
@@ -62,9 +72,23 @@ async function pickAntDate(page, fieldName, dateObj, { hour = 10, minute = 0 } =
   // OK button at all — and their closing animation lasts ~200ms, so only by
   // the OK button EXISTING do we know confirmation is needed).
   const ok = dd.locator('button:has-text("OK")').first();
-  const okExists = (await ok.count()) > 0;
-  if (okExists) {
-    await expect(ok).toBeEnabled({ timeout: 10000 });
+  if ((await ok.count()) > 0) {
+    let enabled = false;
+    for (let attempt = 1; attempt <= 2 && !enabled; attempt++) {
+      await pickOnce();
+      enabled = await ok.isEnabled({ timeout: attempt === 1 ? 4000 : 10_000 }).catch(() => false);
+      if (!enabled) {
+        // Re-open the panel: a swallowed pick may have closed/reactivated it.
+        await input.click().catch(() => {});
+        await dd.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+      }
+    }
+    if (!enabled) {
+      throw new Error(
+        `pickAntDate(${fieldName}): picker OK stayed DISABLED after 2 pick attempts ` +
+        `(picked ${committed}) — the app rejects this datetime (too old?) or the pick never registered.`
+      );
+    }
     await ok.click();
   }
 

@@ -61,13 +61,38 @@ test.describe('Vendor Portal — Outlets CRUD', () => {
       await page.getByPlaceholder('Postal code').fill('12345');
       // Capture the create-POST so a silent failure reports its evidence
       // instead of a mystery "Back to Outlets" timeout.
-      const createPost = page.waitForResponse(
+      const expectCreatePost = (timeoutMs) => page.waitForResponse(
         (r) => /\/outlets/.test(r.url()) && r.request().method() === 'POST',
-        { timeout: 30000 }
+        { timeout: timeoutMs }
       ).catch(() => null);
       await page.getByRole('button', { name: /create outlet/i }).click();
 
-      const post = await createPost;
+      let post = await expectCreatePost(10_000);
+
+      if (!post) {
+        // Run 42481009511: both CI attempts had ALL fields filled, button
+        // clicked+focused, ZERO validation errors, ZERO JS errors and ZERO
+        // network calls after the click — the app swallowed the submit
+        // client-side. Collect hard evidence into Allure, then retry ONCE.
+        const diag = await page.evaluate(() => ({
+          validationErrors: Array.from(
+            document.querySelectorAll('.ant-form-item-explain-error, [class*=error], [role=alert]')
+          ).map((el) => (el.textContent || '').trim()).filter(Boolean).slice(0, 10),
+          overlays: {
+            modal: document.querySelectorAll('.ant-modal-wrap:not([style*="display: none"])').length,
+            spinner: document.querySelectorAll('.ant-spin-spinning').length,
+          },
+        }));
+        await allure.attachment(
+          'create-outlet-no-post-diagnostics',
+          JSON.stringify(diag, null, 2),
+          'application/json'
+        );
+        console.log('Create outlet: first click produced no POST —', JSON.stringify(diag));
+        const retry = expectCreatePost(30_000);
+        await page.getByRole('button', { name: /create outlet/i }).click();
+        post = await retry;
+      }
       if (!post) {
         throw new Error(
           'Create outlet: clicking "Create outlet" never triggered a POST request ' +

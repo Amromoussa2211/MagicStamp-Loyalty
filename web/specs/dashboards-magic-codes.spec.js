@@ -90,6 +90,10 @@ test.describe('Vendor Portal — Magic Codes', () => {
   });
 
   test('vendor creates a batch of magic codes end to end', async ({ page }) => {
+    // CI budget: Auth0 login alone is ~44s on a 2-core runner and this test
+    // performs a 4-pick date wizard + submission after it — it timed out at
+    // 180s on CI (run 42481009511) while finishing ~90s locally.
+    test.setTimeout(300_000);
     const creds = validCredentials() || { email: 'amro_kaza@hotmail.com', password: 'P@$$w0rd2010' };
 
     allure.label('layer', 'web');
